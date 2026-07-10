@@ -1,0 +1,84 @@
+"use client";
+
+import Link from "next/link";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { brand } from "@/config/brand";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { signIn } from "@/lib/auth-client";
+
+export default function SignInPage() {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  return (
+    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-6 py-16">
+      <Link
+        href="/"
+        className="mb-8 font-[family-name:var(--font-display)] text-2xl font-semibold text-[var(--primary)]"
+      >
+        {brand.name}
+      </Link>
+      <h1 className="text-2xl font-semibold tracking-tight">Welcome back</h1>
+      <p className="mt-2 text-sm text-[var(--muted-foreground)]">
+        Sign in to continue to your workspace.
+      </p>
+
+      <form
+        className="mt-8 space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const form = new FormData(e.currentTarget);
+          const email = String(form.get("email") ?? "");
+          const password = String(form.get("password") ?? "");
+          setError(null);
+          startTransition(async () => {
+            const result = await signIn.email({ email, password });
+            if (result.error) {
+              setError(result.error.message ?? "Sign in failed");
+              return;
+            }
+            router.push("/app");
+            router.refresh();
+          });
+        }}
+      >
+        <div className="space-y-2">
+          <Label htmlFor="email">Email</Label>
+          <Input id="email" name="email" type="email" required autoComplete="email" />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="password">Password</Label>
+          <Input
+            id="password"
+            name="password"
+            type="password"
+            required
+            autoComplete="current-password"
+          />
+        </div>
+        {error && (
+          <p className="text-sm text-[var(--destructive)]" role="alert">
+            {error}
+          </p>
+        )}
+        <Button type="submit" className="w-full" disabled={pending}>
+          {pending ? "Signing in…" : "Sign in"}
+        </Button>
+      </form>
+
+      <p className="mt-6 text-sm text-[var(--muted-foreground)]">
+        <Link href="/forgot-password" className="underline">
+          Forgot password?
+        </Link>
+        {" · "}
+        <Link href="/sign-up" className="underline">
+          Create an account
+        </Link>
+      </p>
+    </main>
+  );
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "regions": ["iad1"],
+  "buildCommand": "pnpm run build",
+  "installCommand": "pnpm install",
+  "crons": [
+    {
+      "path": "/api/cron/expire-invitations",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/prune-versions",
+      "schedule": "30 3 * * *"
+    }
+  ]
+}
