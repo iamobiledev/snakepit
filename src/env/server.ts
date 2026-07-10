@@ -59,7 +59,8 @@ let cached: ServerEnv | null = null;
 export function getServerEnv(): ServerEnv {
   if (cached) return cached;
 
-  if (process.env.SKIP_ENV_VALIDATION === "1") {
+  const isNextBuild = process.env.NEXT_PHASE === "phase-production-build";
+  if (process.env.SKIP_ENV_VALIDATION === "1" || isNextBuild) {
     cached = {
       NODE_ENV:
         (process.env.NODE_ENV as ServerEnv["NODE_ENV"]) ?? "development",
@@ -88,7 +89,11 @@ export function getServerEnv(): ServerEnv {
     DATABASE_URL_UNPOOLED: process.env.DATABASE_URL_UNPOOLED,
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
     BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
-    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+    NEXT_PUBLIC_APP_URL:
+      process.env.NEXT_PUBLIC_APP_URL ??
+      (process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : undefined),
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     EMAIL_FROM: process.env.EMAIL_FROM,
     BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN,
@@ -109,7 +114,12 @@ export function getServerEnv(): ServerEnv {
 /** App base URL used for auth callbacks, invitations, and public links. */
 export function getAppUrl(): string {
   const env = getServerEnv();
-  return (env.BETTER_AUTH_URL ?? env.NEXT_PUBLIC_APP_URL).replace(/\/$/, "");
+  const configured = env.BETTER_AUTH_URL ?? env.NEXT_PUBLIC_APP_URL;
+  if (configured) return configured.replace(/\/$/, "");
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`.replace(/\/$/, "");
+  }
+  return "http://localhost:3000";
 }
 
 /** Connection string for migrations (prefer unpooled / direct). */

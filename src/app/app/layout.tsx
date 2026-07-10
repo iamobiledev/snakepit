@@ -5,6 +5,9 @@ import { SignOutButtons } from "@/components/auth/sign-out-buttons";
 import { requireVerifiedSession } from "@/lib/session";
 import { listUserWorkspaces } from "@/lib/documents/service";
 
+/** Auth + DB backed — never statically prerender at build time. */
+export const dynamic = "force-dynamic";
+
 export default async function AppLayout({
   children,
 }: {

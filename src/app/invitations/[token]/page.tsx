@@ -7,6 +7,8 @@ import { brand } from "@/config/brand";
 import { getDb, workspaceInvitations, workspaces } from "@/db";
 import { eq } from "drizzle-orm";
 
+export const dynamic = "force-dynamic";
+
 export default async function InvitationPage({
   params,
 }: {
