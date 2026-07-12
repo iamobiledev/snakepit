@@ -7,8 +7,12 @@ Docloom is a Vercel-first collaborative knowledge base built with Next.js (App R
 ## Features
 
 - **Documents** — rich-text editing (headings, lists, checkboxes, code blocks, links, inline images) with debounced autosave and a live *Saved* indicator; Notion-style page hierarchy with a collapsible sidebar tree.
+- **Wikis** — a second document type for canonical team knowledge. Wikis can be **locked** by admins: locked wikis are read-only for everyone except workspace owners/admins and platform admins.
+- **Change log** — every page has an Activity history (who created/edited/renamed/moved/trashed/published/locked it, when) with autosave edits coalesced into readable sessions, alongside restorable version snapshots.
 - **Organization** — favorites, recently-viewed, soft-delete trash with restore (nothing is permanently deleted from the UI), and automatic version snapshots on significant edits with preview + restore.
 - **Sharing & permissions** — every user gets a private **Personal notebook** only they can see; team workspaces where every member sees every page (admins manage members, editors write, viewers read); publish-to-web for public read-only pages; a request-access screen (never an error) for links you can't open.
+- **User types** — platform `admin` (creates team workspaces, locks/edits locked wikis) and `developer` (regular user). The first registered user automatically becomes an admin.
+- **Email notifications** — invitation emails, "you've joined a workspace" + "your invite was accepted" emails, and document-activity alerts to a page's creator and previous editors (throttled to one email per person per page per 6 hours, per-user opt-out in Settings → Notifications). Pending invitations show when the email was sent, with one-click resend.
 - **Search** — fast Postgres full-text + trigram search with weighted ranking (exact title → prefix → fuzzy → body → recency), a global **⌘K / Ctrl+K** palette with highlighted snippets and owner/date/scope filters, permission-filtered inside SQL.
 - **Slack integration** — paste a doc link in Slack and get a rich inline preview (permission-aware), search with `/docs` or by mentioning `@docloom` in natural language (optionally LLM-assisted), and share pages into channels from the app's share dialog. See [Slack integration](#slack-integration).
 - **Polish** — keyboard shortcuts (press `?` in the app), loading skeletons, empty states, toasts, responsive layout with a mobile drawer.
@@ -164,6 +168,9 @@ Supported flows: email/password, email verification, password reset, secure sess
 1. Create a [Resend](https://resend.com) API key and verified domain.
 2. Set `RESEND_API_KEY` and `EMAIL_FROM` (e.g. `Docloom <noreply@your-domain.com>`).
 3. Without these, the console email provider logs messages (local-friendly).
+4. For quick testing before a domain is verified, `EMAIL_FROM=Docloom <onboarding@resend.dev>` works, but Resend only delivers it to your own account address — switch to a verified domain for real recipients.
+
+Emails sent: verification/reset (auth), workspace invitations (+ resend), joined-workspace + invitation-accepted confirmations, and throttled document-activity alerts (opt-out per user under Settings → Notifications).
 
 The provider interface is in `src/lib/email/` — swap Resend without changing call sites.
 

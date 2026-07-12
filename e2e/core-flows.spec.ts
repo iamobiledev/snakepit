@@ -188,6 +188,7 @@ test.describe.serial("core flows", () => {
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: /version history/i }).click();
     await expect(page.getByText(/snapshots are taken automatically/i)).toBeVisible();
+    await page.getByRole("tab", { name: "Versions" }).click();
     const version = page.getByRole("button", { name: /^v\d+/ }).first();
     await expect(version).toBeVisible({ timeout: 10_000 });
     await version.click();
