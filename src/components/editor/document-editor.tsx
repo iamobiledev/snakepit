@@ -2,6 +2,7 @@
 
 import {
   useEditor,
+  useEditorState,
   EditorContent,
   isNodeSelection,
   type Editor,
@@ -128,6 +129,27 @@ export function DocumentEditor({
           "prose prose-neutral max-w-none min-h-[50vh] focus:outline-none px-1 pb-32",
         "aria-label": "Document content",
       },
+    },
+  });
+
+  // Re-render the bubble menu contents on selection/state changes —
+  // plain `editor.isActive(...)` reads during render would go stale.
+  const activeStates = useEditorState({
+    editor,
+    selector: ({ editor: e }) => {
+      if (!e) return null;
+      return {
+        bold: e.isActive("bold"),
+        italic: e.isActive("italic"),
+        underline: e.isActive("underline"),
+        strike: e.isActive("strike"),
+        code: e.isActive("code"),
+        link: e.isActive("link"),
+        turnIntoLabel: (
+          TURN_INTO_OPTIONS.find((option) => option.isActive(e)) ??
+          TURN_INTO_OPTIONS[0]
+        ).label,
+      };
     },
   });
 
@@ -354,39 +376,42 @@ export function DocumentEditor({
           }}
           className="flex items-center overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)] shadow-[0_9px_24px_rgba(15,15,15,0.2)]"
         >
-          <TurnIntoDropdown editor={editor} />
+          <TurnIntoDropdown
+            editor={editor}
+            activeLabel={activeStates?.turnIntoLabel ?? "Text"}
+          />
           <BubbleDivider />
           <BubbleButton
             onClick={() => editor.chain().focus().toggleBold().run()}
-            active={editor.isActive("bold")}
+            active={activeStates?.bold}
             label="Bold (⌘B)"
           >
             <Bold className="h-4 w-4" />
           </BubbleButton>
           <BubbleButton
             onClick={() => editor.chain().focus().toggleItalic().run()}
-            active={editor.isActive("italic")}
+            active={activeStates?.italic}
             label="Italic (⌘I)"
           >
             <Italic className="h-4 w-4" />
           </BubbleButton>
           <BubbleButton
             onClick={() => editor.chain().focus().toggleUnderline().run()}
-            active={editor.isActive("underline")}
+            active={activeStates?.underline}
             label="Underline (⌘U)"
           >
             <Underline className="h-4 w-4" />
           </BubbleButton>
           <BubbleButton
             onClick={() => editor.chain().focus().toggleStrike().run()}
-            active={editor.isActive("strike")}
+            active={activeStates?.strike}
             label="Strikethrough (⌘⇧S)"
           >
             <Strikethrough className="h-4 w-4" />
           </BubbleButton>
           <BubbleButton
             onClick={() => editor.chain().focus().toggleCode().run()}
-            active={editor.isActive("code")}
+            active={activeStates?.code}
             label="Code (⌘E)"
           >
             <Code className="h-4 w-4" />
@@ -394,7 +419,7 @@ export function DocumentEditor({
           <BubbleDivider />
           <BubbleButton
             onClick={openLinkDialog}
-            active={editor.isActive("link")}
+            active={activeStates?.link}
             label="Link (⌘K)"
           >
             <Link2 className="h-4 w-4" />
@@ -528,11 +553,13 @@ const TURN_INTO_OPTIONS: Array<{
   },
 ];
 
-function TurnIntoDropdown({ editor }: { editor: Editor }) {
-  const current =
-    TURN_INTO_OPTIONS.find((option) => option.isActive(editor)) ??
-    TURN_INTO_OPTIONS[0];
-
+function TurnIntoDropdown({
+  editor,
+  activeLabel,
+}: {
+  editor: Editor;
+  activeLabel: string;
+}) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -542,7 +569,7 @@ function TurnIntoDropdown({ editor }: { editor: Editor }) {
           onMouseDown={(event) => event.preventDefault()}
           className="flex h-8 items-center gap-1 px-2.5 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--sidebar-hover)] focus-visible:outline-none"
         >
-          {current.label}
+          {activeLabel}
           <ChevronDown className="h-3 w-3 text-[var(--muted-foreground)]" />
         </button>
       </DropdownMenuTrigger>
@@ -553,7 +580,7 @@ function TurnIntoDropdown({ editor }: { editor: Editor }) {
             onSelect={() => option.apply(editor)}
           >
             {option.label}
-            {option.isActive(editor) && (
+            {option.label === activeLabel && (
               <Check className="ml-auto h-3.5 w-3.5 text-[var(--primary)]" />
             )}
           </DropdownMenuItem>

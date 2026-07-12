@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Tailwind v4 gates hover: styles behind @media (hover: hover), which never
+   matches on some hybrid/touch or virtualized pointers and hides hover-only
+   affordances (sidebar chevrons, add buttons). Apply hover unconditionally. */
+@custom-variant hover (&:hover);
+
 :root {
   /* Notion-inspired palette: white canvas, warm dark ink, gray chrome. */
   --background: #ffffff;
