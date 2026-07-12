@@ -224,6 +224,11 @@ body {
   text-decoration-color: color-mix(in oklab, var(--muted-foreground) 50%, transparent);
 }
 
+/* Sub-page blocks: the row itself isn't underlined (only the title span). */
+.prose [data-type="subpage"] a {
+  text-decoration: none;
+}
+
 /* Selected node outline (e.g. images) */
 .ProseMirror-selectednode {
   outline: 2px solid var(--ring);

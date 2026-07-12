@@ -369,6 +369,72 @@ export async function createDocument(opts: {
   return doc;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Sub-page blocks                                                             */
+/* -------------------------------------------------------------------------- */
+
+function collectSubpageIds(node: unknown, ids: Set<string>) {
+  if (!node || typeof node !== "object") return;
+  const n = node as {
+    type?: string;
+    attrs?: { documentId?: string };
+    content?: unknown[];
+  };
+  if (n.type === "subpage" && n.attrs?.documentId) {
+    ids.add(n.attrs.documentId);
+  }
+  if (Array.isArray(n.content)) {
+    for (const child of n.content) collectSubpageIds(child, ids);
+  }
+}
+
+function patchSubpageTitles(
+  node: unknown,
+  titles: Map<string, string>,
+): unknown {
+  if (!node || typeof node !== "object") return node;
+  const n = node as {
+    type?: string;
+    attrs?: { documentId?: string; title?: string };
+    content?: unknown[];
+  };
+  let next = n;
+  if (n.type === "subpage" && n.attrs?.documentId) {
+    const title = titles.get(n.attrs.documentId);
+    if (title !== undefined && title !== n.attrs.title) {
+      next = { ...n, attrs: { ...n.attrs, title } };
+    }
+  }
+  if (Array.isArray(next.content)) {
+    const original = next.content;
+    const patched = original.map((child) => patchSubpageTitles(child, titles));
+    if (patched.some((child, index) => child !== original[index])) {
+      next = { ...next, content: patched };
+    }
+  }
+  return next;
+}
+
+/**
+ * Refresh the `title` attribute of sub-page blocks in TipTap JSON so that
+ * renamed child pages stay in sync wherever the parent document is rendered.
+ */
+export async function refreshSubpageTitles(
+  contentJson: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const ids = new Set<string>();
+  collectSubpageIds(contentJson, ids);
+  if (ids.size === 0) return contentJson;
+
+  const db = getDb();
+  const rows = await db
+    .select({ id: documents.id, title: documents.title })
+    .from(documents)
+    .where(inArray(documents.id, [...ids]));
+  const titles = new Map(rows.map((row) => [row.id, row.title]));
+  return patchSubpageTitles(contentJson, titles) as Record<string, unknown>;
+}
+
 export async function saveDocumentContent(opts: {
   userId: string;
   documentId: string;

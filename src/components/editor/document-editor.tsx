@@ -8,6 +8,7 @@ import {
   type Editor,
 } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
+import { useRouter } from "next/navigation";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
@@ -48,7 +49,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { SlashCommand, IMAGE_REQUEST_EVENT } from "./slash-command";
+import {
+  SlashCommand,
+  IMAGE_REQUEST_EVENT,
+  SUBPAGE_REQUEST_EVENT,
+} from "./slash-command";
+import { Subpage } from "./subpage-node";
+import { actionCreateDocument } from "@/app/actions";
 
 export type SaveStatus = "saved" | "saving" | "dirty" | "error";
 
@@ -76,6 +83,7 @@ export function DocumentEditor({
   onSave,
   readOnly = false,
 }: DocumentEditorProps) {
+  const router = useRouter();
   const [title, setTitle] = useState(initialTitle);
   const [status, setStatus] = useState<SaveStatus>("saved");
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
@@ -118,6 +126,7 @@ export function DocumentEditor({
       }),
       TaskList,
       TaskItem.configure({ nested: true }),
+      Subpage,
       SlashCommand,
     ],
     content: initialContent,
@@ -168,7 +177,12 @@ export function DocumentEditor({
       applyStatus("saving");
       const payload = {
         title: titleRef.current.trim() || "Untitled",
-        contentJson: currentEditor.getJSON() as Record<string, unknown>,
+        // Deep-clone to plain JSON: ProseMirror attrs objects have a null
+        // prototype, which React's server-action serializer refuses to send
+        // (it turns them into opaque temporary references).
+        contentJson: JSON.parse(
+          JSON.stringify(currentEditor.getJSON()),
+        ) as Record<string, unknown>,
       };
       let reschedule = false;
       try {
@@ -201,6 +215,19 @@ export function DocumentEditor({
   useEffect(() => {
     saveFnRef.current = performSave;
   }, [performSave]);
+
+  // Deterministic save: waits out any in-flight autosave, then persists the
+  // editor's *current* content. Used before navigating away (e.g. /subpage).
+  const saveNow = useCallback(
+    async (currentEditor: Editor) => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      while (savingRef.current) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      await performSave(currentEditor);
+    },
+    [performSave],
+  );
 
   const scheduleSave = useCallback(
     (currentEditor: Editor) => {
@@ -237,6 +264,47 @@ export function DocumentEditor({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [editor, performSave, readOnly]);
+
+  // The "/subpage" slash command: create a child page, link it inline, and
+  // open it (Notion behavior).
+  useEffect(() => {
+    if (!editor || readOnly) return;
+    const onSubpageRequest = () => {
+      void (async () => {
+        const creating = toast.loading("Creating sub-page…");
+        try {
+          const formData = new FormData();
+          formData.set("workspaceId", workspaceId);
+          formData.set("parentId", documentId);
+          formData.set("title", "Untitled");
+          const doc = await actionCreateDocument(formData);
+          editor
+            .chain()
+            .focus()
+            .insertContent({
+              type: "subpage",
+              attrs: {
+                documentId: doc.id,
+                workspaceId,
+                title: doc.title || "Untitled",
+              },
+            })
+            .run();
+          // Persist the parent before leaving so the link is never lost.
+          await saveNow(editor);
+          toast.success("Sub-page created", { id: creating });
+          router.push(`/app/${workspaceId}/docs/${doc.id}`);
+        } catch {
+          toast.error("Couldn't create the sub-page. Please try again.", {
+            id: creating,
+          });
+        }
+      })();
+    };
+    window.addEventListener(SUBPAGE_REQUEST_EVENT, onSubpageRequest);
+    return () =>
+      window.removeEventListener(SUBPAGE_REQUEST_EVENT, onSubpageRequest);
+  }, [editor, readOnly, workspaceId, documentId, saveNow, router]);
 
   // The "/image" slash command asks the editor to open the file picker.
   useEffect(() => {

@@ -123,6 +123,57 @@ test.describe.serial("core flows", () => {
     await expect(editor.getByText("Milestones")).toBeVisible();
   });
 
+  test("'/subpage' creates a nested page linked from the parent", async ({
+    page,
+  }) => {
+    await signIn(page, DEMO_EMAIL);
+    await page.goto(docUrl);
+
+    // Insert a sub-page at the end of the parent document.
+    const editor = page.locator(".ProseMirror");
+    await editor.click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("/subpage");
+    await expect(
+      page.getByRole("listbox", { name: "Insert block" }),
+    ).toBeVisible();
+    await page.keyboard.press("Enter");
+
+    // Notion behavior: the new child page opens automatically.
+    await page.waitForURL(
+      (url) => /\/docs\//.test(url.pathname) && !url.href.includes(docUrl),
+      { timeout: 15_000 },
+    );
+    const childUrl = page.url();
+    await expect(page.getByLabel("Document title")).toHaveValue("Untitled");
+
+    // Rename the child, then confirm the parent's link text follows.
+    await page.getByLabel("Document title").fill(`Chapter One ${runId}`);
+    await page.keyboard.press("ControlOrMeta+s");
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await page.goto(docUrl);
+    const subpageLink = page
+      .locator(".ProseMirror [data-type='subpage'] a")
+      .first();
+    await expect(subpageLink).toContainText(`Chapter One ${runId}`);
+    await shot(page, "02b-subpage-link");
+
+    // The link navigates to the child page.
+    await subpageLink.click();
+    await page.waitForURL(childUrl);
+
+    // The sidebar tree shows the child nested under the parent.
+    await expect(
+      page
+        .getByRole("navigation", { name: "Documents" })
+        .getByText(`Chapter One ${runId}`),
+    ).toBeVisible();
+  });
+
   test("favorite a page shows it in the sidebar", async ({ page }) => {
     await signIn(page, DEMO_EMAIL);
     await page.goto(docUrl);
@@ -220,8 +271,12 @@ test.describe.serial("core flows", () => {
     await expect(page.getByText(docTitle)).toBeVisible();
     await shot(page, "07-trash");
 
-    // Restore
-    await page.getByRole("button", { name: /restore/i }).first().click();
+    // Restore the parent page specifically (its sub-page is also listed).
+    await page
+      .locator("li", { hasText: docTitle })
+      .first()
+      .getByRole("button", { name: /restore/i })
+      .click();
     await expect(page.getByText("Page restored")).toBeVisible();
     await page.goto(docUrl);
     await expect(page.getByLabel("Document title")).toBeVisible();

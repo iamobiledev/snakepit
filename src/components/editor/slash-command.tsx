@@ -15,6 +15,7 @@ import Suggestion, {
 import {
   CheckSquare,
   Code,
+  FileText,
   Heading1,
   Heading2,
   Heading3,
@@ -29,6 +30,9 @@ import {
 
 /** Fired when the "/image" command wants the editor to open its file picker. */
 export const IMAGE_REQUEST_EVENT = "docloom:editor-image-request";
+
+/** Fired when the "/subpage" command wants the editor to create a child page. */
+export const SUBPAGE_REQUEST_EVENT = "docloom:editor-subpage-request";
 
 export type SlashCommandItem = {
   title: string;
@@ -93,6 +97,16 @@ const GROUPS: SlashCommandGroup[] = [
             .deleteRange(range)
             .setHeading({ level: 3 })
             .run(),
+      },
+      {
+        title: "Sub-page",
+        description: "Create a page inside this page.",
+        searchTerms: ["subpage", "page", "child", "nested", "link", "doc"],
+        icon: FileText,
+        command: ({ editor, range }) => {
+          editor.chain().focus().deleteRange(range).run();
+          window.dispatchEvent(new CustomEvent(SUBPAGE_REQUEST_EVENT));
+        },
       },
       {
         title: "To-do list",
