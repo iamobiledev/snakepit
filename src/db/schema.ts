@@ -135,6 +135,12 @@ export const workspaces = pgTable(
     slug: text("slug").notNull(),
     iconUrl: text("icon_url"),
     iconBlobPathname: text("icon_blob_pathname"),
+    /**
+     * Personal notebooks are single-member workspaces provisioned per user.
+     * They can never be shared: invitations and membership changes are
+     * rejected server-side for personal workspaces.
+     */
+    isPersonal: boolean("is_personal").notNull().default(false),
     createdById: text("created_by_id")
       .notNull()
       .references(() => user.id, { onDelete: "restrict" }),
@@ -145,7 +151,12 @@ export const workspaces = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [uniqueIndex("workspaces_slug_uidx").on(t.slug)],
+  (t) => [
+    uniqueIndex("workspaces_slug_uidx").on(t.slug),
+    uniqueIndex("workspaces_personal_owner_uidx")
+      .on(t.createdById)
+      .where(sql`${t.isPersonal}`),
+  ],
 );
 
 export const workspaceMembers = pgTable(

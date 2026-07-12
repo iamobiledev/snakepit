@@ -1,10 +1,21 @@
 import { notFound } from "next/navigation";
-import { requireVerifiedSession } from "@/lib/session";
-import { getDocumentForUser } from "@/lib/documents/service";
-import { DocumentEditorClient } from "./editor-client";
-import { actionPublishDocument } from "@/app/actions";
-import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { FileQuestion, Trash2 } from "lucide-react";
+import { requireVerifiedSession } from "@/lib/session";
+import {
+  getDocumentWithAccess,
+  getDocumentAncestors,
+  isFavorited,
+  recordDocumentView,
+  listUserWorkspaces,
+} from "@/lib/documents/service";
+import { getSlackStatus } from "@/lib/slack/status";
+import { canEdit as accessCanEdit } from "@/lib/documents/access";
+import { DocumentEditorClient } from "./editor-client";
+import { DocHeader } from "@/components/documents/doc-header";
+import { RequestAccess } from "@/components/documents/request-access";
+import { RestoreBanner } from "@/components/documents/restore-banner";
+import { Button } from "@/components/ui/button";
 
 export default async function DocumentPage({
   params,
@@ -13,49 +24,85 @@ export default async function DocumentPage({
 }) {
   const { workspaceId, documentId } = await params;
   const session = await requireVerifiedSession();
-  const doc = await getDocumentForUser(session.user.id, documentId);
-  if (!doc || doc.workspaceId !== workspaceId) notFound();
+  const result = await getDocumentWithAccess(session.user.id, documentId);
 
-  async function togglePublish(formData: FormData) {
-    "use server";
-    await actionPublishDocument(formData);
+  if (!result) {
+    return (
+      <div className="mx-auto flex max-w-md flex-col items-center py-24 text-center">
+        <FileQuestion className="h-10 w-10 text-[var(--muted-foreground)]" />
+        <h1 className="mt-4 font-[family-name:var(--font-display)] text-2xl font-semibold">
+          This page doesn’t exist
+        </h1>
+        <p className="mt-2 text-sm text-[var(--muted-foreground)]">
+          It may have been permanently removed, or the link is wrong.
+        </p>
+        <Button asChild className="mt-6">
+          <Link href="/app">Back to your workspaces</Link>
+        </Button>
+      </div>
+    );
   }
+
+  if (result.access === "none") {
+    return <RequestAccess documentId={documentId} />;
+  }
+
+  const { doc } = result;
+  if (doc.workspaceId !== workspaceId) notFound();
+
+  const [ancestors, favorited, workspaces, slack] = await Promise.all([
+    getDocumentAncestors(doc.id),
+    isFavorited(session.user.id, doc.id),
+    listUserWorkspaces(session.user.id),
+    getSlackStatus(doc.workspaceId),
+  ]);
+  await recordDocumentView(session.user.id, doc.id);
+
+  const workspace = workspaces.find((w) => w.id === doc.workspaceId);
+  if (!workspace) notFound();
+
+  const editable = accessCanEdit(result.access);
+  const trashed = doc.archivedAt !== null;
 
   return (
     <div className="mx-auto max-w-3xl">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <Link
-          href={`/app/${workspaceId}`}
-          className="text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-        >
-          ← Back
-        </Link>
-        <div className="flex items-center gap-2">
-          {doc.visibility === "public" && doc.publicSlug && (
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/p/${doc.publicSlug}`} target="_blank">
-                View public page
-              </Link>
-            </Button>
-          )}
-          <form action={togglePublish}>
-            <input type="hidden" name="documentId" value={doc.id} />
-            <input
-              type="hidden"
-              name="publish"
-              value={doc.visibility === "public" ? "false" : "true"}
-            />
-            <Button type="submit" size="sm" variant="secondary">
-              {doc.visibility === "public" ? "Unpublish" : "Publish"}
-            </Button>
-          </form>
+      {trashed ? (
+        <RestoreBanner documentId={doc.id} workspaceId={doc.workspaceId} />
+      ) : (
+        <DocHeader
+          doc={{
+            id: doc.id,
+            workspaceId: doc.workspaceId,
+            title: doc.title,
+            visibility: doc.visibility,
+            publicSlug: doc.publicSlug,
+          }}
+          workspace={{
+            id: workspace.id,
+            name: workspace.name,
+            isPersonal: workspace.isPersonal,
+            role: workspace.role,
+          }}
+          ancestors={ancestors}
+          favorited={favorited}
+          canEdit={editable}
+          slack={slack}
+        />
+      )}
+
+      {trashed && (
+        <div className="mb-4 flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
+          <Trash2 className="h-4 w-4" />
+          This page is in the trash and is read-only.
         </div>
-      </div>
+      )}
 
       <DocumentEditorClient
         documentId={doc.id}
+        workspaceId={doc.workspaceId}
         initialTitle={doc.title}
         initialContent={doc.contentJson}
+        readOnly={!editable || trashed}
       />
     </div>
   );

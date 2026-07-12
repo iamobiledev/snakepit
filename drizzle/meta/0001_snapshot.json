@@ -1,6 +1,6 @@
 {
-  "id": "1d10a4dd-e036-48aa-b705-6ca99662b2b1",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "1a24e0d5-a740-42b1-88e8-88b793f0c9bc",
+  "prevId": "1d10a4dd-e036-48aa-b705-6ca99662b2b1",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1439,6 +1439,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "is_personal": {
+          "name": "is_personal",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "created_by_id": {
           "name": "created_by_id",
           "type": "text",
@@ -1472,6 +1479,22 @@
             }
           ],
           "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "workspaces_personal_owner_uidx": {
+          "name": "workspaces_personal_owner_uidx",
+          "columns": [
+            {
+              "expression": "created_by_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"workspaces\".\"is_personal\"",
           "concurrently": false,
           "method": "btree",
           "with": {}

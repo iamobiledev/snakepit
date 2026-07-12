@@ -51,6 +51,25 @@ export async function sendPasswordResetEmail(opts: {
   });
 }
 
+export async function sendAccessRequestEmail(opts: {
+  to: string | string[];
+  requesterName: string;
+  requesterEmail: string;
+  documentTitle: string;
+  workspaceName: string;
+  settingsUrl: string;
+}) {
+  const provider = getEmailProvider();
+  await provider.send({
+    to: opts.to,
+    subject: `${opts.requesterName} requested access to "${opts.documentTitle}"`,
+    html: `<p><strong>${opts.requesterName}</strong> (${opts.requesterEmail}) requested access to <strong>${opts.documentTitle}</strong> in <strong>${opts.workspaceName}</strong> on ${brand.name}.</p>
+<p>To give them access, invite them to the workspace:</p>
+<p><a href="${opts.settingsUrl}">Open workspace settings</a></p>`,
+    text: `${opts.requesterName} (${opts.requesterEmail}) requested access to "${opts.documentTitle}" in ${opts.workspaceName}. Invite them: ${opts.settingsUrl}`,
+  });
+}
+
 export async function sendWorkspaceInvitationEmail(opts: {
   to: string;
   workspaceName: string;

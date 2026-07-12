@@ -16,12 +16,13 @@ export default async function NewWorkspacePage() {
   }
 
   return (
-    <div className="mx-auto max-w-md">
+    <div className="mx-auto max-w-md px-4 py-16">
       <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold">
         New workspace
       </h1>
       <p className="mt-2 text-sm text-[var(--muted-foreground)]">
-        A shared home for your team&apos;s knowledge in {brand.name}.
+        A shared home for your team&apos;s knowledge in {brand.name}. Everyone
+        you invite can see every page inside it.
       </p>
       <form action={create} className="mt-8 space-y-4">
         <div className="space-y-2">
