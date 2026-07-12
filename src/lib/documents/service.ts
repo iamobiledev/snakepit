@@ -2,6 +2,7 @@ import "server-only";
 import { and, asc, desc, eq, isNull, isNotNull, inArray, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import {
   getDb,
   documents,
@@ -17,10 +18,13 @@ import {
 import { requireMembership, getMembership } from "@/lib/permissions";
 import {
   computeDocumentAccess,
+  canManageWikiLock,
   canEdit,
   canView,
   type DocumentAccess,
+  type PlatformRole,
 } from "./access";
+import { recordDocumentActivity } from "./activity";
 import { shouldCreateVersion } from "./versioning";
 import { extractPlainText } from "./plain-text";
 import { slugify } from "@/lib/utils";
@@ -33,7 +37,19 @@ import { logger } from "@/lib/logger";
 export type DocumentWithAccess = {
   doc: Document;
   access: DocumentAccess;
+  /** Requesting user's platform role (admin | developer). */
+  platformRole: PlatformRole;
 };
+
+async function getPlatformRole(userId: string): Promise<PlatformRole> {
+  const db = getDb();
+  const [row] = await db
+    .select({ role: user.role })
+    .from(user)
+    .where(eq(user.id, userId))
+    .limit(1);
+  return row?.role === "admin" ? "admin" : "developer";
+}
 
 /**
  * Load a document and resolve the caller's access level.
@@ -52,14 +68,20 @@ export async function getDocumentWithAccess(
     .limit(1);
   if (!doc) return null;
 
-  const membership = await getMembership(userId, doc.workspaceId);
+  const [membership, platformRole] = await Promise.all([
+    getMembership(userId, doc.workspaceId),
+    getPlatformRole(userId),
+  ]);
   const access = computeDocumentAccess({
     visibility: doc.visibility,
     isCreator: doc.createdById === userId,
     membershipRole: membership?.role ?? null,
     archived: doc.archivedAt !== null,
+    docType: doc.docType,
+    locked: doc.lockedAt !== null,
+    platformRole,
   });
-  return { doc, access };
+  return { doc, access, platformRole };
 }
 
 /** Like getDocumentWithAccess but throws unless the user can view. */
@@ -109,6 +131,8 @@ export async function listWorkspaceDocuments(
       visibility: documents.visibility,
       publicSlug: documents.publicSlug,
       icon: documents.icon,
+      docType: documents.docType,
+      lockedAt: documents.lockedAt,
       updatedAt: documents.updatedAt,
       createdById: documents.createdById,
     })
@@ -137,6 +161,8 @@ export async function listWorkspaceDocumentTree(
       parentId: row.parentId,
       icon: row.icon,
       visibility: row.visibility,
+      docType: row.docType,
+      locked: row.lockedAt !== null,
       updatedAt: row.updatedAt,
       createdById: row.createdById,
       children: [],
@@ -288,6 +314,7 @@ export async function createDocument(opts: {
   workspaceId: string;
   parentId?: string | null;
   title?: string;
+  docType?: "doc" | "wiki";
 }) {
   await requireMembership(opts.userId, opts.workspaceId, "member");
   const db = getDb();
@@ -321,6 +348,7 @@ export async function createDocument(opts: {
       parentId,
       title,
       breadcrumbPath,
+      docType: opts.docType ?? "doc",
       contentJson: {
         type: "doc",
         content: [{ type: "paragraph" }],
@@ -330,6 +358,13 @@ export async function createDocument(opts: {
       updatedById: opts.userId,
     })
     .returning();
+
+  await recordDocumentActivity({
+    documentId: doc.id,
+    userId: opts.userId,
+    action: "created",
+    metadata: { docType: doc.docType },
+  });
 
   return doc;
 }
@@ -391,11 +426,47 @@ export async function saveDocumentContent(opts: {
 
   if (title !== existing.title) {
     await recomputeBreadcrumbs(db, existing.id);
+    await recordDocumentActivity({
+      documentId: existing.id,
+      userId: opts.userId,
+      action: "renamed",
+      metadata: { from: existing.title, to: title },
+    });
+  }
+
+  const charDelta = plainTextContent.length - existing.plainTextContent.length;
+  if (plainTextContent !== existing.plainTextContent) {
+    await recordDocumentActivity({
+      documentId: existing.id,
+      userId: opts.userId,
+      action: "edited",
+      metadata: { charDelta },
+    });
   }
 
   if (existing.visibility === "public" && existing.publicSlug) {
     revalidatePath(`/p/${existing.publicSlug}`);
   }
+
+  // Notify participants after the response is sent (throttled inside).
+  after(async () => {
+    const { notifyDocumentEdited } = await import("@/lib/notifications");
+    const [actor] = await db
+      .select({ name: user.name })
+      .from(user)
+      .where(eq(user.id, opts.userId))
+      .limit(1);
+    await notifyDocumentEdited({
+      doc: {
+        id: updated.id,
+        workspaceId: updated.workspaceId,
+        title: updated.title,
+        createdById: updated.createdById,
+      },
+      actorId: opts.userId,
+      actorName: actor?.name ?? "Someone",
+    });
+  });
 
   return updated;
 }
@@ -414,6 +485,63 @@ export async function renameDocument(opts: {
     .where(eq(documents.id, existing.id))
     .returning();
   await recomputeBreadcrumbs(db, existing.id);
+  await recordDocumentActivity({
+    documentId: existing.id,
+    userId: opts.userId,
+    action: "renamed",
+    metadata: { from: existing.title, to: title },
+  });
+  return updated;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Wiki locking                                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Lock or unlock a wiki. Only workspace owners/admins and platform admins.
+ * Locked wikis are read-only for everyone else (see computeDocumentAccess).
+ */
+export async function setDocumentLock(opts: {
+  userId: string;
+  documentId: string;
+  locked: boolean;
+}) {
+  const result = await getDocumentWithAccess(opts.userId, opts.documentId);
+  if (!result) throw new Error("NOT_FOUND");
+  if (!canView(result.access)) throw new Error("FORBIDDEN");
+  if (result.doc.docType !== "wiki") throw new Error("NOT_A_WIKI");
+
+  const membership = await getMembership(opts.userId, result.doc.workspaceId);
+  if (
+    !canManageWikiLock({
+      membershipRole: membership?.role ?? null,
+      platformRole: result.platformRole,
+    })
+  ) {
+    throw new Error("FORBIDDEN");
+  }
+
+  const db = getDb();
+  const [updated] = await db
+    .update(documents)
+    .set({
+      lockedAt: opts.locked ? new Date() : null,
+      lockedById: opts.locked ? opts.userId : null,
+      updatedAt: new Date(),
+    })
+    .where(eq(documents.id, result.doc.id))
+    .returning();
+
+  await recordDocumentActivity({
+    documentId: result.doc.id,
+    userId: opts.userId,
+    action: opts.locked ? "locked" : "unlocked",
+  });
+  logger.info("document.lock", {
+    documentId: result.doc.id,
+    locked: opts.locked,
+  });
   return updated;
 }
 
@@ -527,6 +655,11 @@ export async function moveDocument(opts: {
     .where(eq(documents.id, existing.id))
     .returning();
   await recomputeBreadcrumbs(db, existing.id);
+  await recordDocumentActivity({
+    documentId: existing.id,
+    userId: opts.userId,
+    action: "moved",
+  });
   return updated;
 }
 
@@ -585,6 +718,12 @@ export async function trashDocument(opts: {
   if (result.doc.visibility === "public" && result.doc.publicSlug) {
     revalidatePath(`/p/${result.doc.publicSlug}`);
   }
+  await recordDocumentActivity({
+    documentId: result.doc.id,
+    userId: opts.userId,
+    action: "trashed",
+    metadata: { subtreeSize: ids.length },
+  });
   logger.info("document.trash", {
     documentId: result.doc.id,
     subtreeSize: ids.length,
@@ -631,6 +770,11 @@ export async function restoreDocument(opts: {
     }
   }
 
+  await recordDocumentActivity({
+    documentId: result.doc.id,
+    userId: opts.userId,
+    action: "restored",
+  });
   logger.info("document.restore", { documentId: result.doc.id });
   return result.doc;
 }
@@ -752,6 +896,12 @@ export async function restoreDocumentVersion(opts: {
     .returning();
 
   await recomputeBreadcrumbs(db, existing.id);
+  await recordDocumentActivity({
+    documentId: existing.id,
+    userId: opts.userId,
+    action: "version_restored",
+    metadata: { version: version.version },
+  });
   logger.info("document.restore_version", {
     documentId: existing.id,
     versionId: opts.versionId,
@@ -796,6 +946,11 @@ export async function publishDocument(opts: {
     revalidatePath(`/p/${updated.publicSlug}`);
   }
 
+  await recordDocumentActivity({
+    documentId: existing.id,
+    userId: opts.userId,
+    action: opts.publish ? "published" : "unpublished",
+  });
   logger.info("document.publish", {
     documentId: existing.id,
     publish: opts.publish,

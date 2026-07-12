@@ -10,7 +10,11 @@ import {
   listUserWorkspaces,
 } from "@/lib/documents/service";
 import { getSlackStatus } from "@/lib/slack/status";
-import { canEdit as accessCanEdit } from "@/lib/documents/access";
+import {
+  canEdit as accessCanEdit,
+  canManageWikiLock,
+} from "@/lib/documents/access";
+import { Lock } from "lucide-react";
 import { DocumentEditorClient } from "./editor-client";
 import { DocHeader } from "@/components/documents/doc-header";
 import { RequestAccess } from "@/components/documents/request-access";
@@ -63,6 +67,13 @@ export default async function DocumentPage({
 
   const editable = accessCanEdit(result.access);
   const trashed = doc.archivedAt !== null;
+  const locked = doc.lockedAt !== null;
+  const manageLock =
+    doc.docType === "wiki" &&
+    canManageWikiLock({
+      membershipRole: workspace.role,
+      platformRole: result.platformRole,
+    });
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -76,7 +87,10 @@ export default async function DocumentPage({
             title: doc.title,
             visibility: doc.visibility,
             publicSlug: doc.publicSlug,
+            docType: doc.docType,
+            locked,
           }}
+          canManageLock={manageLock}
           workspace={{
             id: workspace.id,
             name: workspace.name,
@@ -94,6 +108,15 @@ export default async function DocumentPage({
         <div className="mb-4 flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
           <Trash2 className="h-4 w-4" />
           This page is in the trash and is read-only.
+        </div>
+      )}
+
+      {!trashed && doc.docType === "wiki" && locked && (
+        <div className="mb-4 flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--hero-wash)] px-3 py-2 text-sm text-[var(--primary)]">
+          <Lock className="h-4 w-4 shrink-0" />
+          {editable
+            ? "This wiki is locked — you can edit it because you're an admin."
+            : "This wiki is locked. Only admins can make changes."}
         </div>
       )}
 

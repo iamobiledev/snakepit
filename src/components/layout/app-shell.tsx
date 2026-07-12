@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   BookLock,
+  BookOpen,
   ChevronsUpDown,
   Menu,
   Plus,
@@ -41,6 +42,7 @@ import { ShortcutsDialog } from "./shortcuts-dialog";
 
 type AppShellProps = {
   user: { name: string; email: string };
+  platformRole: "admin" | "developer";
   workspace: WorkspaceSummary;
   workspaces: WorkspaceSummary[];
   tree: DocumentTreeNode[];
@@ -50,6 +52,7 @@ type AppShellProps = {
 
 export function AppShell({
   user,
+  platformRole,
   workspace,
   workspaces,
   tree,
@@ -65,7 +68,7 @@ export function AppShell({
   const canEditDocs = workspace.role !== "guest";
 
   const createPage = useCallback(
-    (parentId?: string) => {
+    (parentId?: string, docType: "doc" | "wiki" = "doc") => {
       if (!canEditDocs || creating) return;
       startCreating(async () => {
         try {
@@ -73,6 +76,7 @@ export function AppShell({
           formData.set("workspaceId", workspace.id);
           if (parentId) formData.set("parentId", parentId);
           formData.set("title", "Untitled");
+          formData.set("docType", docType);
           const doc = await actionCreateDocument(formData);
           router.push(`/app/${workspace.id}/docs/${doc.id}`);
         } catch {
@@ -114,7 +118,11 @@ export function AppShell({
 
   const sidebar = (
     <div className="flex h-full flex-col">
-      <WorkspaceSwitcher current={workspace} workspaces={workspaces} />
+      <WorkspaceSwitcher
+        current={workspace}
+        workspaces={workspaces}
+        canCreateWorkspace={platformRole === "admin"}
+      />
 
       <div className="mt-4 px-2">
         <button
@@ -134,17 +142,40 @@ export function AppShell({
       </div>
 
       {canEditDocs && (
-        <div className="mt-2 px-2">
+        <div className="mt-2 flex items-center gap-1 px-2">
           <Button
             variant="ghost"
             size="sm"
-            className="w-full justify-start gap-2 text-[var(--primary)]"
+            className="flex-1 justify-start gap-2 text-[var(--primary)]"
             onClick={() => createPage()}
             disabled={creating}
           >
             <Plus className="h-4 w-4" />
             New page
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-[var(--muted-foreground)]"
+                aria-label="More page types"
+                disabled={creating}
+              >
+                <ChevronsUpDown className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-48">
+              <DropdownMenuItem onSelect={() => createPage(undefined, "doc")}>
+                <Plus className="h-4 w-4" />
+                New page
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => createPage(undefined, "wiki")}>
+                <BookOpen className="h-4 w-4" />
+                New wiki
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       )}
 
@@ -337,9 +368,11 @@ export function AppShell({
 function WorkspaceSwitcher({
   current,
   workspaces,
+  canCreateWorkspace,
 }: {
   current: WorkspaceSummary;
   workspaces: WorkspaceSummary[];
+  canCreateWorkspace: boolean;
 }) {
   const personal = workspaces.filter((w) => w.isPersonal);
   const shared = workspaces.filter((w) => !w.isPersonal);
@@ -400,13 +433,17 @@ function WorkspaceSwitcher({
               </Link>
             </DropdownMenuItem>
           ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem asChild>
-            <Link href="/app/new" className="text-[var(--primary)]">
-              <Plus className="h-4 w-4" />
-              New workspace
-            </Link>
-          </DropdownMenuItem>
+          {canCreateWorkspace && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/app/new" className="text-[var(--primary)]">
+                  <Plus className="h-4 w-4" />
+                  New workspace
+                </Link>
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

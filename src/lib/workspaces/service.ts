@@ -1,5 +1,6 @@
 import "server-only";
 import { and, eq, lt } from "drizzle-orm";
+import { after } from "next/server";
 import { nanoid } from "nanoid";
 import {
   getDb,
@@ -16,6 +17,7 @@ import {
 import { sendWorkspaceInvitationEmail } from "@/lib/email";
 import { slugify } from "@/lib/utils";
 import { brand } from "@/config/brand";
+import { logger } from "@/lib/logger";
 
 export async function createWorkspace(opts: {
   userId: string;
@@ -23,6 +25,17 @@ export async function createWorkspace(opts: {
   isPersonal?: boolean;
 }) {
   const db = getDb();
+
+  // Team workspaces can only be created by platform admins.
+  if (!opts.isPersonal) {
+    const [creator] = await db
+      .select({ role: user.role })
+      .from(user)
+      .where(eq(user.id, opts.userId))
+      .limit(1);
+    if (creator?.role !== "admin") throw new Error("ADMIN_ONLY");
+  }
+
   const id = nanoid();
   const base = slugify(opts.name) || "workspace";
   const slug = `${base}-${nanoid(6)}`;
@@ -219,6 +232,7 @@ export async function listPendingInvitations(opts: {
       role: workspaceInvitations.role,
       status: workspaceInvitations.status,
       expiresAt: workspaceInvitations.expiresAt,
+      lastSentAt: workspaceInvitations.lastSentAt,
       createdAt: workspaceInvitations.createdAt,
     })
     .from(workspaceInvitations)
@@ -301,12 +315,20 @@ export async function inviteToWorkspace(opts: {
     })
     .returning();
 
-  await sendWorkspaceInvitationEmail({
-    to: invitation.email,
-    workspaceName: workspace.name,
-    inviterName: inviter?.name ?? "A teammate",
-    token,
-  });
+  // Email failures must not lose the invitation — admins can hit Resend.
+  try {
+    await sendWorkspaceInvitationEmail({
+      to: invitation.email,
+      workspaceName: workspace.name,
+      inviterName: inviter?.name ?? "A teammate",
+      token,
+    });
+  } catch (error) {
+    logger.error("invitation.email_failed", {
+      invitationId: invitation.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   return invitation;
 }
@@ -361,7 +383,84 @@ export async function acceptInvitation(opts: {
     .set({ status: "accepted", acceptedAt: new Date() })
     .where(eq(workspaceInvitations.id, invitation.id));
 
+  // Email the new member + the inviter after the response is sent.
+  after(async () => {
+    const [workspace] = await db
+      .select({ name: workspaces.name })
+      .from(workspaces)
+      .where(eq(workspaces.id, invitation.workspaceId))
+      .limit(1);
+    const [member] = await db
+      .select({ name: user.name, email: user.email })
+      .from(user)
+      .where(eq(user.id, opts.userId))
+      .limit(1);
+    if (!workspace || !member) return;
+    const { notifyWorkspaceJoined } = await import("@/lib/notifications");
+    await notifyWorkspaceJoined({
+      workspaceId: invitation.workspaceId,
+      workspaceName: workspace.name,
+      member,
+      inviterId: invitation.invitedById,
+    });
+  });
+
   return invitation.workspaceId;
+}
+
+/** Re-send a pending invitation email (admins only). */
+export async function resendInvitation(opts: {
+  userId: string;
+  workspaceId: string;
+  invitationId: string;
+}) {
+  const membership = await requireMembership(
+    opts.userId,
+    opts.workspaceId,
+    "admin",
+  );
+  if (!canInvite(membership.role)) throw new Error("FORBIDDEN");
+
+  const db = getDb();
+  const [invitation] = await db
+    .select()
+    .from(workspaceInvitations)
+    .where(
+      and(
+        eq(workspaceInvitations.id, opts.invitationId),
+        eq(workspaceInvitations.workspaceId, opts.workspaceId),
+        eq(workspaceInvitations.status, "pending"),
+      ),
+    )
+    .limit(1);
+  if (!invitation) throw new Error("NOT_FOUND");
+
+  const [workspace] = await db
+    .select({ name: workspaces.name })
+    .from(workspaces)
+    .where(eq(workspaces.id, opts.workspaceId))
+    .limit(1);
+  const [inviter] = await db
+    .select({ name: user.name })
+    .from(user)
+    .where(eq(user.id, opts.userId))
+    .limit(1);
+
+  // Refresh the expiry so the resent link stays usable for a full week.
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7);
+  await db
+    .update(workspaceInvitations)
+    .set({ lastSentAt: new Date(), expiresAt })
+    .where(eq(workspaceInvitations.id, invitation.id));
+
+  await sendWorkspaceInvitationEmail({
+    to: invitation.email,
+    workspaceName: workspace?.name ?? "your workspace",
+    inviterName: inviter?.name ?? "A teammate",
+    token: invitation.token,
+  });
+
+  return invitation;
 }
 
 export async function expireOldInvitations() {

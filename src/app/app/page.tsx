@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft, BookLock, Plus, Users } from "lucide-react";
-import { requireVerifiedSession } from "@/lib/session";
+import { requireVerifiedSession, platformRoleOf } from "@/lib/session";
 import { listUserWorkspaces } from "@/lib/documents/service";
 import { brand } from "@/config/brand";
 import { Button } from "@/components/ui/button";
@@ -85,12 +85,14 @@ export default async function AppHomePage() {
       </section>
 
       <div className="mt-8 flex items-center gap-3">
-        <Button asChild className="gap-1.5">
-          <Link href="/app/new">
-            <Plus className="h-4 w-4" />
-            New workspace
-          </Link>
-        </Button>
+        {platformRoleOf(session.user) === "admin" && (
+          <Button asChild className="gap-1.5">
+            <Link href="/app/new">
+              <Plus className="h-4 w-4" />
+              New workspace
+            </Link>
+          </Button>
+        )}
         <Link
           href="/"
           className="flex items-center gap-1 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]"

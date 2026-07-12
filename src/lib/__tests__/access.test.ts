@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   computeDocumentAccess,
+  canManageWikiLock,
   canView,
   canEdit,
 } from "@/lib/documents/access";
@@ -109,6 +110,97 @@ describe("computeDocumentAccess", () => {
       });
       expect(access).toBe("viewer");
     }
+  });
+
+  it("locked wikis: members demoted to viewer; workspace admins/owners keep editor", () => {
+    const base = {
+      visibility: "workspace" as const,
+      isCreator: false,
+      archived: false,
+      docType: "wiki" as const,
+      locked: true,
+    };
+    expect(
+      computeDocumentAccess({ ...base, membershipRole: "member" }),
+    ).toBe("viewer");
+    expect(
+      computeDocumentAccess({ ...base, membershipRole: "guest" }),
+    ).toBe("viewer");
+    expect(
+      computeDocumentAccess({ ...base, membershipRole: "admin" }),
+    ).toBe("editor");
+    expect(
+      computeDocumentAccess({ ...base, membershipRole: "owner" }),
+    ).toBe("editor");
+    // Creator status does not bypass the lock.
+    expect(
+      computeDocumentAccess({
+        ...base,
+        isCreator: true,
+        membershipRole: "member",
+      }),
+    ).toBe("viewer");
+  });
+
+  it("locked wikis: platform admins keep editor even as workspace members", () => {
+    const base = {
+      visibility: "workspace" as const,
+      isCreator: false,
+      archived: false,
+      docType: "wiki" as const,
+      locked: true,
+      membershipRole: "member" as const,
+    };
+    expect(computeDocumentAccess({ ...base, platformRole: "admin" })).toBe(
+      "editor",
+    );
+    expect(computeDocumentAccess({ ...base, platformRole: "developer" })).toBe(
+      "viewer",
+    );
+    // Platform admins still need workspace membership.
+    expect(
+      computeDocumentAccess({
+        ...base,
+        membershipRole: null,
+        platformRole: "admin",
+      }),
+    ).toBe("none");
+  });
+
+  it("unlocked wikis and locked regular docs behave normally", () => {
+    expect(
+      computeDocumentAccess({
+        visibility: "workspace",
+        isCreator: false,
+        membershipRole: "member",
+        archived: false,
+        docType: "wiki",
+        locked: false,
+      }),
+    ).toBe("editor");
+    // Lock flag is ignored for non-wiki docs (defensive).
+    expect(
+      computeDocumentAccess({
+        visibility: "workspace",
+        isCreator: false,
+        membershipRole: "member",
+        archived: false,
+        docType: "doc",
+        locked: true,
+      }),
+    ).toBe("editor");
+  });
+
+  it("canManageWikiLock: workspace admins/owners and platform admins only", () => {
+    expect(canManageWikiLock({ membershipRole: "owner" })).toBe(true);
+    expect(canManageWikiLock({ membershipRole: "admin" })).toBe(true);
+    expect(canManageWikiLock({ membershipRole: "member" })).toBe(false);
+    expect(
+      canManageWikiLock({ membershipRole: "member", platformRole: "admin" }),
+    ).toBe(true);
+    expect(
+      canManageWikiLock({ membershipRole: null, platformRole: "admin" }),
+    ).toBe(false);
   });
 
   it("helpers reflect levels", () => {

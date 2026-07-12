@@ -45,6 +45,22 @@ export const documentVisibilityEnum = pgEnum("document_visibility", [
   "public",
 ]);
 
+export const documentTypeEnum = pgEnum("document_type", ["doc", "wiki"]);
+
+export const documentActivityActionEnum = pgEnum("document_activity_action", [
+  "created",
+  "edited",
+  "renamed",
+  "moved",
+  "trashed",
+  "restored",
+  "published",
+  "unpublished",
+  "version_restored",
+  "locked",
+  "unlocked",
+]);
+
 /* -------------------------------------------------------------------------- */
 /* Better Auth core tables                                                     */
 /* -------------------------------------------------------------------------- */
@@ -55,6 +71,12 @@ export const user = pgTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
   image: text("image"),
+  /** Platform user type: admins can create workspaces + manage locked wikis. */
+  role: text("role", { enum: ["admin", "developer"] })
+    .notNull()
+    .default("developer"),
+  /** Opt-out toggle for document-activity email notifications. */
+  emailNotifications: boolean("email_notifications").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -199,6 +221,10 @@ export const workspaceInvitations = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    /** When the invite email was last (re)sent. */
+    lastSentAt: timestamp("last_sent_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -228,6 +254,13 @@ export const documents = pgTable(
     visibility: documentVisibilityEnum("visibility")
       .notNull()
       .default("workspace"),
+    /** Document type — wikis can be locked to admin-only editing. */
+    docType: documentTypeEnum("doc_type").notNull().default("doc"),
+    /** When set, the wiki is locked: only admins can edit or unlock. */
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    lockedById: text("locked_by_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
     /** TipTap JSON document */
     contentJson: jsonb("content_json").$type<Record<string, unknown>>().notNull().default({}),
     /** Normalized plain text for search */
@@ -264,6 +297,67 @@ export const documents = pgTable(
       sql`${t.title} gin_trgm_ops`,
     ),
     index("documents_search_vector_idx").using("gin", t.searchVector),
+  ],
+);
+
+/**
+ * Per-document audit log: who did what, when.
+ * `edited` rows are coalesced per user within a 15-minute window so the log
+ * stays readable under constant autosave traffic.
+ */
+export const documentActivity = pgTable(
+  "document_activity",
+  {
+    id: text("id").primaryKey(),
+    documentId: text("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    action: documentActivityActionEnum("action").notNull(),
+    /** Action context, e.g. { from, to } for renames, charDelta for edits. */
+    metadata: jsonb("metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /** Coalescing window end for `edited` rows. */
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("document_activity_doc_created_idx").on(t.documentId, t.updatedAt),
+    index("document_activity_user_idx").on(t.userId),
+  ],
+);
+
+/** Throttle log for outbound notification emails (one row per send). */
+export const notificationLog = pgTable(
+  "notification_log",
+  {
+    id: text("id").primaryKey(),
+    recipientId: text("recipient_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    documentId: text("document_id").references(() => documents.id, {
+      onDelete: "cascade",
+    }),
+    type: text("type").notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("notification_log_recipient_doc_idx").on(
+      t.recipientId,
+      t.documentId,
+      t.type,
+      t.sentAt,
+    ),
   ],
 );
 

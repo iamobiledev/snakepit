@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronRight, FileText, Plus } from "lucide-react";
+import { BookOpen, ChevronRight, FileText, Lock, Plus } from "lucide-react";
 import type { DocumentTreeNode } from "@/lib/documents/types";
 
 /**
@@ -141,10 +141,18 @@ function TreeItem({
         >
           {node.icon ? (
             <span className="shrink-0 text-sm leading-none">{node.icon}</span>
+          ) : node.docType === "wiki" ? (
+            <BookOpen className="h-3.5 w-3.5 shrink-0 text-[var(--primary)]" />
           ) : (
             <FileText className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" />
           )}
           <span className="truncate">{node.title || "Untitled"}</span>
+          {node.locked && (
+            <Lock
+              aria-label="Locked"
+              className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]"
+            />
+          )}
         </Link>
         {onCreateChild && (
           <button

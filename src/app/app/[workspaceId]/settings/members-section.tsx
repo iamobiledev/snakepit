@@ -14,7 +14,9 @@ import {
   actionUpdateMemberRole,
   actionRemoveMember,
   actionRevokeInvitation,
+  actionResendInvitation,
 } from "@/app/actions";
+import { formatDistanceToNow } from "date-fns";
 
 type Member = {
   userId: string;
@@ -29,6 +31,7 @@ type Invitation = {
   email: string;
   role: string;
   expiresAt: string;
+  lastSentAt: string;
 };
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
@@ -110,6 +113,21 @@ export function MembersSection({
       });
       if (result.ok) {
         toast.success(`Invitation to ${invitationEmail} revoked`);
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    });
+  };
+
+  const resend = (invitationId: string, invitationEmail: string) => {
+    startTransition(async () => {
+      const result = await actionResendInvitation({
+        workspaceId,
+        invitationId,
+      });
+      if (result.ok) {
+        toast.success(`Invitation re-sent to ${invitationEmail}`);
         router.refresh();
       } else {
         toast.error(result.error);
@@ -208,19 +226,34 @@ export function MembersSection({
                       ? "editor"
                       : invitation.role === "guest"
                         ? "viewer"
-                        : invitation.role}
+                        : invitation.role}{" "}
+                    · email sent{" "}
+                    {formatDistanceToNow(new Date(invitation.lastSentAt), {
+                      addSuffix: true,
+                    })}
                   </span>
                 </span>
                 {isAdmin && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-xs text-[var(--muted-foreground)] hover:text-[var(--destructive)]"
-                    onClick={() => revoke(invitation.id, invitation.email)}
-                    disabled={pending}
-                  >
-                    Revoke
-                  </Button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs"
+                      onClick={() => resend(invitation.id, invitation.email)}
+                      disabled={pending}
+                    >
+                      Resend
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs text-[var(--muted-foreground)] hover:text-[var(--destructive)]"
+                      onClick={() => revoke(invitation.id, invitation.email)}
+                      disabled={pending}
+                    >
+                      Revoke
+                    </Button>
+                  </div>
                 )}
               </li>
             ))}

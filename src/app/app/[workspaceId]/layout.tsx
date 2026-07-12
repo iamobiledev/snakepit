@@ -1,4 +1,4 @@
-import { requireVerifiedSession } from "@/lib/session";
+import { requireVerifiedSession, platformRoleOf } from "@/lib/session";
 import {
   listUserWorkspaces,
   listWorkspaceDocumentTree,
@@ -38,6 +38,7 @@ export default async function WorkspaceLayout({
   return (
     <AppShell
       user={{ name: session.user.name, email: session.user.email }}
+      platformRole={platformRoleOf(session.user)}
       workspace={{
         id: workspace.id,
         name: workspace.name,

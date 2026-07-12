@@ -51,6 +51,63 @@ export async function sendPasswordResetEmail(opts: {
   });
 }
 
+export async function sendWorkspaceJoinedEmail(opts: {
+  to: string;
+  memberName: string;
+  workspaceName: string;
+  workspaceUrl: string;
+}) {
+  const provider = getEmailProvider();
+  await provider.send({
+    to: opts.to,
+    subject: `You now have access to ${opts.workspaceName} on ${brand.name}`,
+    html: `<p>Hi ${opts.memberName},</p>
+<p>You've joined <strong>${opts.workspaceName}</strong> on ${brand.name}. Every page in the workspace is now available to you.</p>
+<p><a href="${opts.workspaceUrl}">Open ${opts.workspaceName}</a></p>
+<p>${brand.tagline}</p>`,
+    text: `You've joined ${opts.workspaceName} on ${brand.name}: ${opts.workspaceUrl}`,
+  });
+}
+
+export async function sendInvitationAcceptedEmail(opts: {
+  to: string;
+  inviterName: string;
+  memberName: string;
+  memberEmail: string;
+  workspaceName: string;
+  workspaceUrl: string;
+}) {
+  const provider = getEmailProvider();
+  await provider.send({
+    to: opts.to,
+    subject: `${opts.memberName} joined ${opts.workspaceName}`,
+    html: `<p>Hi ${opts.inviterName},</p>
+<p><strong>${opts.memberName}</strong> (${opts.memberEmail}) accepted your invitation and joined <strong>${opts.workspaceName}</strong>.</p>
+<p><a href="${opts.workspaceUrl}">Open ${opts.workspaceName}</a></p>`,
+    text: `${opts.memberName} (${opts.memberEmail}) joined ${opts.workspaceName}: ${opts.workspaceUrl}`,
+  });
+}
+
+export async function sendDocumentActivityEmail(opts: {
+  to: string;
+  recipientName: string;
+  actorName: string;
+  documentTitle: string;
+  workspaceName: string;
+  documentUrl: string;
+}) {
+  const provider = getEmailProvider();
+  await provider.send({
+    to: opts.to,
+    subject: `${opts.actorName} made changes to "${opts.documentTitle}"`,
+    html: `<p>Hi ${opts.recipientName},</p>
+<p><strong>${opts.actorName}</strong> made changes to <strong>${opts.documentTitle}</strong> in <strong>${opts.workspaceName}</strong>.</p>
+<p><a href="${opts.documentUrl}">Open the page</a> to see what changed (the page's History shows every edit).</p>
+<p style="color:#6b6458;font-size:12px">You get at most one email per page every few hours. Turn these off in Settings → Notifications.</p>`,
+    text: `${opts.actorName} made changes to "${opts.documentTitle}" in ${opts.workspaceName}: ${opts.documentUrl}`,
+  });
+}
+
 export async function sendAccessRequestEmail(opts: {
   to: string | string[];
   requesterName: string;

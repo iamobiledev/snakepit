@@ -44,6 +44,7 @@ async function main() {
       name,
       email,
       emailVerified: true,
+      role: "admin", // demo user is a platform admin
     });
 
     const hashed = await hashPassword(password);
@@ -56,7 +57,13 @@ async function main() {
     });
     console.log(`Created user ${email}`);
   } else {
-    console.log(`User ${email} already exists`);
+    // Keep the demo user a platform admin across re-seeds.
+    const { eq } = await import("drizzle-orm");
+    await db
+      .update(schema.user)
+      .set({ role: "admin" })
+      .where(eq(schema.user.id, userId));
+    console.log(`User ${email} already exists (ensured admin role)`);
   }
 
   const existingWs = await db.query.workspaces.findFirst({
@@ -127,6 +134,7 @@ async function main() {
       name: "Taylor Teammate",
       email: outsiderEmail,
       emailVerified: true,
+      role: "developer",
     });
     await db.insert(schema.account).values({
       id: nanoid(),

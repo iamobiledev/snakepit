@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Clock, FileText, Plus, Star } from "lucide-react";
+import { BookOpen, Clock, FileText, Lock, Plus, Star } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { requireVerifiedSession } from "@/lib/session";
 import {
@@ -40,6 +40,16 @@ export default async function WorkspacePage({
     redirect(`/app/${workspaceId}/docs/${doc.id}`);
   }
 
+  async function createWiki() {
+    "use server";
+    const formData = new FormData();
+    formData.set("workspaceId", workspaceId);
+    formData.set("title", "Untitled");
+    formData.set("docType", "wiki");
+    const doc = await actionCreateDocument(formData);
+    redirect(`/app/${workspaceId}/docs/${doc.id}`);
+  }
+
   return (
     <div className="mx-auto max-w-4xl space-y-10">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -54,12 +64,20 @@ export default async function WorkspacePage({
           </p>
         </div>
         {canEdit && (
-          <form action={createDoc}>
-            <Button type="submit" className="gap-1.5">
-              <Plus className="h-4 w-4" />
-              New page
-            </Button>
-          </form>
+          <div className="flex gap-2">
+            <form action={createWiki}>
+              <Button type="submit" variant="outline" className="gap-1.5">
+                <BookOpen className="h-4 w-4" />
+                New wiki
+              </Button>
+            </form>
+            <form action={createDoc}>
+              <Button type="submit" className="gap-1.5">
+                <Plus className="h-4 w-4" />
+                New page
+              </Button>
+            </form>
+          </div>
         )}
       </div>
 
@@ -163,9 +181,15 @@ export default async function WorkspacePage({
                     href={`/app/${workspaceId}/docs/${doc.id}`}
                     className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-[var(--muted)]"
                   >
-                    <span className="min-w-0 truncate">
-                      {doc.icon && <span className="mr-1.5">{doc.icon}</span>}
-                      {doc.title || "Untitled"}
+                    <span className="flex min-w-0 items-center gap-1.5 truncate">
+                      {doc.icon && <span>{doc.icon}</span>}
+                      {doc.docType === "wiki" && (
+                        <BookOpen className="h-3.5 w-3.5 shrink-0 text-[var(--primary)]" />
+                      )}
+                      <span className="truncate">{doc.title || "Untitled"}</span>
+                      {doc.lockedAt && (
+                        <Lock className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]" />
+                      )}
                     </span>
                     <span className="flex shrink-0 items-center gap-3 text-xs text-[var(--muted-foreground)]">
                       {doc.visibility === "public" && (

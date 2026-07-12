@@ -16,7 +16,10 @@ import {
   getDocumentVersion,
   restoreDocumentVersion,
   getDocumentWithAccess,
+  getDocumentForUser,
+  setDocumentLock,
 } from "@/lib/documents/service";
+import { listDocumentActivity } from "@/lib/documents/activity";
 import {
   createWorkspace,
   inviteToWorkspace,
@@ -25,6 +28,7 @@ import {
   removeMember,
   renameWorkspace,
   revokeInvitation,
+  resendInvitation,
   listWorkspaceMembers,
   getWorkspaceById,
 } from "@/lib/workspaces/service";
@@ -54,6 +58,8 @@ const FRIENDLY_ERRORS: Record<string, string> = {
   INVITATION_INACTIVE: "This invitation is no longer active.",
   INVITATION_EXPIRED: "This invitation has expired.",
   EMAIL_MISMATCH: "This invitation was sent to a different email address.",
+  ADMIN_ONLY: "Only platform admins can create workspaces.",
+  NOT_A_WIKI: "Only wikis can be locked.",
 };
 
 function friendlyError(error: unknown): string {
@@ -160,6 +166,36 @@ export async function actionRemoveMember(input: {
   });
 }
 
+export async function actionResendInvitation(input: {
+  workspaceId: string;
+  invitationId: string;
+}): Promise<ActionResult<undefined>> {
+  const session = await requireVerifiedSession();
+  return run(async () => {
+    const parsed = z
+      .object({ workspaceId: z.string().min(1), invitationId: z.string().min(1) })
+      .parse(input);
+    await resendInvitation({ userId: session.user.id, ...parsed });
+    revalidatePath(`/app/${parsed.workspaceId}/settings`);
+    return undefined;
+  });
+}
+
+export async function actionSetEmailNotifications(input: {
+  enabled: boolean;
+}): Promise<ActionResult<undefined>> {
+  const session = await requireVerifiedSession();
+  return run(async () => {
+    const parsed = z.object({ enabled: z.boolean() }).parse(input);
+    const db = getDb();
+    await db
+      .update(userTable)
+      .set({ emailNotifications: parsed.enabled, updatedAt: new Date() })
+      .where(eq(userTable.id, session.user.id));
+    return undefined;
+  });
+}
+
 export async function actionRevokeInvitation(input: {
   workspaceId: string;
   invitationId: string;
@@ -195,6 +231,8 @@ export async function actionCreateDocument(formData: FormData) {
   const workspaceId = String(formData.get("workspaceId") ?? "");
   const parentId = String(formData.get("parentId") ?? "") || null;
   const title = String(formData.get("title") ?? "Untitled");
+  const docType =
+    String(formData.get("docType") ?? "doc") === "wiki" ? "wiki" : "doc";
   if (!workspaceId) throw new Error("workspaceId is required");
 
   const doc = await createDocument({
@@ -202,9 +240,57 @@ export async function actionCreateDocument(formData: FormData) {
     workspaceId,
     parentId,
     title,
+    docType,
   });
   revalidatePath(`/app/${workspaceId}`);
   return doc;
+}
+
+export async function actionSetDocumentLock(input: {
+  documentId: string;
+  locked: boolean;
+}): Promise<ActionResult<{ locked: boolean }>> {
+  const session = await requireVerifiedSession();
+  return run(async () => {
+    const parsed = z
+      .object({ documentId: z.string().min(1), locked: z.boolean() })
+      .parse(input);
+    const doc = await setDocumentLock({ userId: session.user.id, ...parsed });
+    revalidatePath(`/app/${doc.workspaceId}/docs/${doc.id}`);
+    return { locked: doc.lockedAt !== null };
+  });
+}
+
+export async function actionListDocumentActivity(input: {
+  documentId: string;
+}): Promise<
+  ActionResult<
+    Array<{
+      id: string;
+      action: string;
+      metadata: Record<string, unknown>;
+      at: string;
+      userName: string | null;
+      userImage: string | null;
+    }>
+  >
+> {
+  const session = await requireVerifiedSession();
+  return run(async () => {
+    const parsed = z.object({ documentId: z.string().min(1) }).parse(input);
+    // View access required.
+    const doc = await getDocumentForUser(session.user.id, parsed.documentId);
+    if (!doc) throw new Error("NOT_FOUND");
+    const entries = await listDocumentActivity(parsed.documentId);
+    return entries.map((entry) => ({
+      id: entry.id,
+      action: entry.action,
+      metadata: entry.metadata,
+      at: entry.updatedAt.toISOString(),
+      userName: entry.userName,
+      userImage: entry.userImage,
+    }));
+  });
 }
 
 export async function actionSaveDocument(input: {

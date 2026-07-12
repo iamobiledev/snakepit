@@ -11,8 +11,11 @@ import {
   getConnectionForWorkspace,
   getUserSlackLinks,
 } from "@/lib/slack/service";
+import { getDb, user as userTable } from "@/db";
+import { eq } from "drizzle-orm";
 import { MembersSection } from "./members-section";
 import { WorkspaceNameSection } from "./workspace-name-section";
+import { NotificationsSection } from "./notifications-section";
 import { SlackSection } from "./slack-section";
 
 export const metadata = { title: "Settings" };
@@ -39,6 +42,14 @@ export default async function WorkspaceSettingsPage({
       : Promise.resolve([]),
     getSlackStatus(workspaceId),
   ]);
+
+  const db = getDb();
+  const [currentUser] = await db
+    .select({ emailNotifications: userTable.emailNotifications })
+    .from(userTable)
+    .where(eq(userTable.id, session.user.id))
+    .limit(1);
+  const emailNotificationsEnabled = currentUser?.emailNotifications ?? true;
 
   // Is the current user's Slack identity linked to the connected team?
   let userLinked = false;
@@ -99,10 +110,13 @@ export default async function WorkspaceSettingsPage({
               email: invitation.email,
               role: invitation.role,
               expiresAt: invitation.expiresAt.toISOString(),
+              lastSentAt: invitation.lastSentAt.toISOString(),
             }))}
           />
         </>
       )}
+
+      <NotificationsSection enabled={emailNotificationsEnabled} />
 
       <SlackSection
         workspaceId={workspaceId}

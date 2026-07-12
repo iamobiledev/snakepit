@@ -5,9 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
+  BookOpen,
   ChevronRight,
   History,
   Link2,
+  Lock,
+  LockOpen,
   MoreHorizontal,
   Share2,
   Star,
@@ -24,6 +27,7 @@ import {
 import {
   actionToggleFavorite,
   actionTrashDocument,
+  actionSetDocumentLock,
 } from "@/app/actions";
 import { ShareDialog } from "@/components/share/share-dialog";
 import { HistoryPanel } from "./history-panel";
@@ -35,7 +39,11 @@ export type DocHeaderProps = {
     title: string;
     visibility: "private" | "workspace" | "public";
     publicSlug: string | null;
+    docType: "doc" | "wiki";
+    locked: boolean;
   };
+  /** Current user may lock/unlock this wiki. */
+  canManageLock: boolean;
   workspace: {
     id: string;
     name: string;
@@ -54,6 +62,7 @@ export type DocHeaderProps = {
 
 export function DocHeader({
   doc,
+  canManageLock,
   workspace,
   ancestors,
   favorited,
@@ -65,6 +74,25 @@ export function DocHeader({
   const [shareOpen, setShareOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [, startTransition] = useTransition();
+
+  const toggleLock = () => {
+    startTransition(async () => {
+      const result = await actionSetDocumentLock({
+        documentId: doc.id,
+        locked: !doc.locked,
+      });
+      if (result.ok) {
+        toast.success(
+          result.data.locked
+            ? "Wiki locked — only admins can edit"
+            : "Wiki unlocked — editors can edit again",
+        );
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    });
+  };
 
   const docUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/app/${doc.workspaceId}/docs/${doc.id}`;
 
@@ -132,9 +160,16 @@ export function DocHeader({
             <ChevronRight className="h-3.5 w-3.5 shrink-0" />
             <span
               aria-current="page"
-              className="truncate font-medium text-[var(--foreground)]"
+              className="flex min-w-0 items-center gap-1.5 truncate font-medium text-[var(--foreground)]"
             >
-              {doc.title || "Untitled"}
+              {doc.docType === "wiki" && (
+                <span className="flex shrink-0 items-center gap-1 rounded-full bg-[var(--hero-wash)] px-2 py-0.5 text-[11px] font-semibold text-[var(--primary)]">
+                  <BookOpen className="h-3 w-3" />
+                  Wiki
+                  {doc.locked && <Lock className="h-3 w-3" />}
+                </span>
+              )}
+              <span className="truncate">{doc.title || "Untitled"}</span>
             </span>
           </li>
         </ol>
@@ -188,6 +223,21 @@ export function DocHeader({
               <Link2 className="h-4 w-4" />
               Copy link
             </DropdownMenuItem>
+            {doc.docType === "wiki" && canManageLock && (
+              <DropdownMenuItem onSelect={toggleLock}>
+                {doc.locked ? (
+                  <>
+                    <LockOpen className="h-4 w-4" />
+                    Unlock wiki
+                  </>
+                ) : (
+                  <>
+                    <Lock className="h-4 w-4" />
+                    Lock wiki
+                  </>
+                )}
+              </DropdownMenuItem>
+            )}
             {canEdit && (
               <>
                 <DropdownMenuSeparator />
