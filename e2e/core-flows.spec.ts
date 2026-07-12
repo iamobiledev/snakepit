@@ -218,19 +218,41 @@ test.describe.serial("core flows", () => {
     await expect(page.getByLabel("Document title")).toBeVisible();
   });
 
-  test("non-members get a request-access screen, not content", async ({
+  test("users without access get a request-access screen, not content", async ({
     page,
+    browser,
   }) => {
-    await signIn(page, OUTSIDER_EMAIL);
-    await page.goto(docUrl);
-    await expect(page.getByText("You need access")).toBeVisible();
-    // No content leak
-    await expect(page.locator("body")).not.toContainText(docTitle);
-    await shot(page, "08-request-access");
-    await page.getByRole("button", { name: /request access/i }).click();
+    // Demo creates a page in their PERSONAL notebook — inaccessible to
+    // everyone else regardless of team memberships.
+    const privateTitle = `Private plan ${runId}`;
+    await signIn(page, DEMO_EMAIL);
+    await page.goto("/app");
+    await page.getByRole("link", { name: "Personal notebook" }).first().click();
+    await page.waitForURL(/\/app\/[^/]+$/);
+    await page.getByRole("button", { name: /new page/i }).first().click();
+    await page.waitForURL(/\/docs\//);
+    const privateUrl = page.url();
+    await page.getByLabel("Document title").fill(privateTitle);
+    await page.keyboard.press("ControlOrMeta+s");
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // The other user opens the link → request-access screen, no leak.
+    const outsiderContext = await browser.newContext();
+    const outsiderPage = await outsiderContext.newPage();
+    await signIn(outsiderPage, OUTSIDER_EMAIL);
+    await outsiderPage.goto(privateUrl);
+    await expect(outsiderPage.getByText("You need access")).toBeVisible();
+    await expect(outsiderPage.locator("body")).not.toContainText(privateTitle);
+    await shot(outsiderPage, "08-request-access");
+    await outsiderPage
+      .getByRole("button", { name: /request access/i })
+      .click();
     await expect(
-      page.getByRole("heading", { name: "Request sent" }),
+      outsiderPage.getByRole("heading", { name: "Request sent" }),
     ).toBeVisible();
+    await outsiderContext.close();
   });
 
   test("personal notebook pages are invisible to others (search)", async ({
