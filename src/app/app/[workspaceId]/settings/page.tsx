@@ -7,6 +7,10 @@ import {
   listPendingInvitations,
 } from "@/lib/workspaces/service";
 import { getSlackStatus } from "@/lib/slack/status";
+import {
+  getConnectionForWorkspace,
+  getUserSlackLinks,
+} from "@/lib/slack/service";
 import { MembersSection } from "./members-section";
 import { WorkspaceNameSection } from "./workspace-name-section";
 import { SlackSection } from "./slack-section";
@@ -35,6 +39,19 @@ export default async function WorkspaceSettingsPage({
       : Promise.resolve([]),
     getSlackStatus(workspaceId),
   ]);
+
+  // Is the current user's Slack identity linked to the connected team?
+  let userLinked = false;
+  if (slack.connected) {
+    const [connection, links] = await Promise.all([
+      getConnectionForWorkspace(workspaceId),
+      getUserSlackLinks(session.user.id),
+    ]);
+    userLinked = Boolean(
+      connection &&
+        links.some((link) => link.slackTeamId === connection.slackTeamId),
+    );
+  }
 
   return (
     <div className="mx-auto max-w-2xl space-y-10">
@@ -92,6 +109,7 @@ export default async function WorkspaceSettingsPage({
         isPersonal={workspace.isPersonal}
         isAdmin={isAdmin}
         slack={slack}
+        userLinked={userLinked}
       />
     </div>
   );

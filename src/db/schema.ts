@@ -369,6 +369,78 @@ export const files = pgTable(
 );
 
 /* -------------------------------------------------------------------------- */
+/* Slack integration                                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One Slack team connection per Docloom workspace, installed by an admin.
+ * The bot token is encrypted at rest (AES-256-GCM, see src/lib/slack/crypto).
+ */
+export const slackConnections = pgTable(
+  "slack_connections",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    slackTeamId: text("slack_team_id").notNull(),
+    slackTeamName: text("slack_team_name").notNull(),
+    /** AES-256-GCM encrypted bot token (iv:tag:ciphertext, base64). */
+    encryptedBotToken: text("encrypted_bot_token").notNull(),
+    botUserId: text("bot_user_id").notNull(),
+    scopes: text("scopes").notNull().default(""),
+    installedById: text("installed_by_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("slack_connections_workspace_uidx").on(t.workspaceId),
+    index("slack_connections_team_idx").on(t.slackTeamId),
+  ],
+);
+
+/** Links a Docloom user to their Slack identity in a specific Slack team. */
+export const slackUserLinks = pgTable(
+  "slack_user_links",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    slackTeamId: text("slack_team_id").notNull(),
+    slackUserId: text("slack_user_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("slack_user_links_team_slack_user_uidx").on(
+      t.slackTeamId,
+      t.slackUserId,
+    ),
+    uniqueIndex("slack_user_links_user_team_uidx").on(t.userId, t.slackTeamId),
+  ],
+);
+
+/** Idempotency guard for Slack event redelivery (pruned by cron). */
+export const slackEvents = pgTable(
+  "slack_events",
+  {
+    eventKey: text("event_key").primaryKey(),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("slack_events_received_idx").on(t.receivedAt)],
+);
+
+/* -------------------------------------------------------------------------- */
 /* Relations                                                                   */
 /* -------------------------------------------------------------------------- */
 
