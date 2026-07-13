@@ -8,6 +8,7 @@ import {
   isFavorited,
   recordDocumentView,
   listUserWorkspaces,
+  refreshSubpageTitles,
 } from "@/lib/documents/service";
 import { getSlackStatus } from "@/lib/slack/status";
 import {
@@ -54,12 +55,14 @@ export default async function DocumentPage({
   const { doc } = result;
   if (doc.workspaceId !== workspaceId) notFound();
 
-  const [ancestors, favorited, workspaces, slack] = await Promise.all([
-    getDocumentAncestors(doc.id),
-    isFavorited(session.user.id, doc.id),
-    listUserWorkspaces(session.user.id),
-    getSlackStatus(doc.workspaceId),
-  ]);
+  const [ancestors, favorited, workspaces, slack, contentJson] =
+    await Promise.all([
+      getDocumentAncestors(doc.id),
+      isFavorited(session.user.id, doc.id),
+      listUserWorkspaces(session.user.id),
+      getSlackStatus(doc.workspaceId),
+      refreshSubpageTitles(doc.contentJson),
+    ]);
   await recordDocumentView(session.user.id, doc.id);
 
   const workspace = workspaces.find((w) => w.id === doc.workspaceId);
@@ -124,7 +127,7 @@ export default async function DocumentPage({
         documentId={doc.id}
         workspaceId={doc.workspaceId}
         initialTitle={doc.title}
-        initialContent={doc.contentJson}
+        initialContent={contentJson}
         readOnly={!editable || trashed}
       />
     </div>

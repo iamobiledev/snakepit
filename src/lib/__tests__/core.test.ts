@@ -30,6 +30,24 @@ describe("extractPlainText", () => {
     expect(extractPlainText(doc)).toContain("Hello");
     expect(extractPlainText(doc)).toContain("World");
   });
+
+  it("indexes sub-page block titles", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "subpage",
+          attrs: { documentId: "abc", workspaceId: "ws", title: "Chapter 1" },
+        },
+        {
+          type: "paragraph",
+          content: [{ type: "text", text: "Intro" }],
+        },
+      ],
+    };
+    expect(extractPlainText(doc)).toContain("Chapter 1");
+    expect(extractPlainText(doc)).toContain("Intro");
+  });
 });
 
 describe("utils", () => {
