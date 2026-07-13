@@ -157,7 +157,12 @@ export async function listDocumentSharing(
 
   return {
     canShare: canShare(result.access),
-    generalAccess: doc.visibility === "private" ? "invited" : "workspace",
+    // Personal-notebook pages are always effectively invite-only (the
+    // workspace has exactly one member), regardless of the visibility flag.
+    generalAccess:
+      doc.visibility === "private" || workspace?.isPersonal
+        ? "invited"
+        : "workspace",
     workspaceName: workspace?.name ?? "workspace",
     isPersonal: workspace?.isPersonal ?? false,
     published: doc.publishedAt !== null,

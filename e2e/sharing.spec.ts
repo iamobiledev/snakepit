@@ -10,6 +10,10 @@ import path from "node:path";
  * - General access: "Only people invited" vs "Everyone at {workspace}"
  * - pending invitations for emails without an account
  *
+ * The direct-share flow uses a page in the demo user's PERSONAL notebook so
+ * the teammate's access can only come from the share itself (other suites
+ * may add the teammate to the team workspace, which must not affect this).
+ *
  * Requires a seeded local database (`pnpm db:seed`) and E2E_HAS_DATABASE=1.
  */
 
@@ -44,32 +48,36 @@ async function openSharePopover(page: Page) {
   await expect(page.getByRole("tab", { name: "Share" })).toBeVisible();
 }
 
+async function createPage(page: Page, workspaceLink: string, title: string) {
+  await page.goto("/app");
+  await page.getByRole("link", { name: workspaceLink }).first().click();
+  await page.waitForURL(/\/app\/[^/]+$/);
+  await page.getByRole("button", { name: /new page/i }).first().click();
+  await page.waitForURL(/\/docs\//);
+  await page.getByLabel("Document title").fill(title);
+  const editor = page.locator(".ProseMirror");
+  await editor.click();
+  await page.keyboard.type("the part should be 70mm wide");
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+    timeout: 10_000,
+  });
+  return page.url();
+}
+
 test.describe.serial("page sharing", () => {
   test.skip(!hasDb, "Requires a seeded database (E2E_HAS_DATABASE=1)");
 
   const runId = Date.now().toString(36);
   const docTitle = `Timeclock desk mount ${runId}`;
+  const teamDocTitle = `Roadmap ${runId}`;
   const strangerEmail = `stranger-${runId}@example.com`;
   let docUrl = "";
 
-  test("owner creates a page and the Share popover shows themselves with full access", async ({
+  test("owner creates a private page; the Share popover shows them with full access", async ({
     page,
   }) => {
     await signIn(page, DEMO_EMAIL);
-    await page.goto("/app");
-    await page.getByRole("link", { name: "My Workspace" }).first().click();
-    await page.waitForURL(/\/app\/[^/]+$/);
-    await page.getByRole("button", { name: /new page/i }).first().click();
-    await page.waitForURL(/\/docs\//);
-    docUrl = page.url();
-
-    await page.getByLabel("Document title").fill(docTitle);
-    const editor = page.locator(".ProseMirror");
-    await editor.click();
-    await page.keyboard.type("the part should be 70mm wide");
-    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
-      timeout: 10_000,
-    });
+    docUrl = await createPage(page, "Personal notebook", docTitle);
 
     await openSharePopover(page);
     // Invite input with the Notion placeholder.
@@ -79,8 +87,8 @@ test.describe.serial("page sharing", () => {
     // The owner row: "(You)" + Full access.
     await expect(page.getByText("(You)")).toBeVisible();
     await expect(page.getByText("Full access").first()).toBeVisible();
-    // General access defaults to everyone in the workspace.
-    await expect(page.getByText("Everyone at My Workspace")).toBeVisible();
+    // Personal-notebook pages are always invite-only.
+    await expect(page.getByText("Only people invited")).toBeVisible();
     await shot(page, "10-share-popover");
   });
 
@@ -113,8 +121,12 @@ test.describe.serial("page sharing", () => {
     const context = await browser.newContext();
     const page = await context.newPage();
     await signIn(page, OUTSIDER_EMAIL);
+    // Enter the app shell (the /app picker has no sidebar).
+    await page.getByRole("link", { name: "Personal notebook" }).first().click();
+    await page.waitForURL(/\/app\/[^/]+$/);
 
-    // Sidebar "Shared" section lists the page (teammate isn't a member).
+    // Sidebar "Shared" section lists the page (teammate isn't a member of
+    // the demo user's personal notebook — access comes from the share).
     const nav = page.getByRole("navigation", { name: "Documents" });
     await expect(nav.getByText("Shared", { exact: true })).toBeVisible();
     await nav.getByText(docTitle).click();
@@ -171,16 +183,20 @@ test.describe.serial("page sharing", () => {
     await context.close();
   });
 
-  test("General access switches to 'Only people invited'", async ({
+  test("General access on a team page switches to 'Only people invited'", async ({
     page,
+    browser,
   }) => {
     await signIn(page, DEMO_EMAIL);
-    await page.goto(docUrl);
+    const teamDocUrl = await createPage(page, "My Workspace", teamDocTitle);
+
     await openSharePopover(page);
+    // Team pages default to everyone in the workspace.
+    await expect(
+      page.getByRole("button", { name: "Change general access" }),
+    ).toContainText("Everyone at My Workspace");
     await page.getByRole("button", { name: "Change general access" }).click();
-    await page
-      .getByRole("menuitem", { name: /Only people invited/i })
-      .click();
+    await page.getByRole("menuitem", { name: /Only people invited/i }).click();
     await expect(
       page.getByText(/Only invited people can open this page now/i),
     ).toBeVisible({ timeout: 10_000 });
@@ -188,13 +204,23 @@ test.describe.serial("page sharing", () => {
       page.getByRole("button", { name: "Change general access" }),
     ).toContainText("Only people invited");
     await shot(page, "13-only-people-invited");
+
+    // Without an invitation, the teammate cannot open it — even if another
+    // test suite made them a member of the workspace.
+    const context = await browser.newContext();
+    const teammate = await context.newPage();
+    await signIn(teammate, OUTSIDER_EMAIL);
+    await teammate.goto(teamDocUrl);
+    await expect(teammate.getByText("You need access")).toBeVisible();
+    await expect(teammate.locator("body")).not.toContainText(teamDocTitle);
+    await context.close();
   });
 
-  test("teammate keeps access via their direct share; removal locks them out", async ({
+  test("removing the teammate locks them out with a request-access screen", async ({
     page,
     browser,
   }) => {
-    // Direct share still works while the page is invite-only.
+    // Direct share still works before removal.
     const context = await browser.newContext();
     const teammate = await context.newPage();
     await signIn(teammate, OUTSIDER_EMAIL);
@@ -211,9 +237,9 @@ test.describe.serial("page sharing", () => {
       .getByRole("button", { name: /Change Taylor Teammate's access/i })
       .click();
     await page.getByRole("menuitem", { name: "Remove" }).click();
-    await expect(page.getByText(/Removed Taylor Teammate's access/i)).toBeVisible(
-      { timeout: 10_000 },
-    );
+    await expect(
+      page.getByText(/Removed Taylor Teammate's access/i),
+    ).toBeVisible({ timeout: 10_000 });
 
     // The teammate now gets the request-access screen — no content leak.
     await teammate.goto(docUrl);
