@@ -72,13 +72,24 @@ export class NeonSearchService implements SearchService {
                    END
                  ) + (EXTRACT(EPOCH FROM d.updated_at) / 1e12) AS score
           FROM documents d
-          INNER JOIN workspace_members wm
+          LEFT JOIN workspace_members wm
             ON wm.workspace_id = d.workspace_id
            AND wm.user_id = ${input.userId}
+          LEFT JOIN document_permissions dp
+            ON dp.document_id = d.id
+           AND dp.user_id = ${input.userId}
           INNER JOIN workspaces w ON w.id = d.workspace_id
           INNER JOIN "user" u ON u.id = d.created_by_id
           WHERE d.archived_at IS NULL
-            AND (d.visibility <> 'private' OR d.created_by_id = ${input.userId})
+            -- Permission mirror of computeDocumentAccess: workspace members
+            -- or direct shares; private ("Only people invited") requires
+            -- being the creator or holding a direct share.
+            AND (wm.user_id IS NOT NULL OR dp.user_id IS NOT NULL)
+            AND (
+              d.visibility <> 'private'
+              OR d.created_by_id = ${input.userId}
+              OR dp.user_id IS NOT NULL
+            )
             ${workspaceFilter}
             ${ownerFilter}
             ${updatedFilter}
