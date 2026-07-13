@@ -293,6 +293,18 @@ export async function listFavoriteDocuments(
     .orderBy(desc(favorites.createdAt));
 }
 
+/** Every favorited document id for the user, across all workspaces. */
+export async function listFavoriteDocumentIds(
+  userId: string,
+): Promise<string[]> {
+  const db = getDb();
+  const rows = await db
+    .select({ documentId: favorites.documentId })
+    .from(favorites)
+    .where(eq(favorites.userId, userId));
+  return rows.map((row) => row.documentId);
+}
+
 export async function isFavorited(userId: string, documentId: string) {
   const db = getDb();
   const [row] = await db
@@ -367,6 +379,36 @@ export async function createDocument(opts: {
   });
 
   return doc;
+}
+
+/** Copy a document (content, icon, type) next to the original. */
+export async function duplicateDocument(opts: {
+  userId: string;
+  documentId: string;
+}) {
+  const source = await getDocumentForUser(opts.userId, opts.documentId);
+  if (!source) throw new Error("NOT_FOUND");
+
+  const copy = await createDocument({
+    userId: opts.userId,
+    workspaceId: source.workspaceId,
+    parentId: source.parentId,
+    title: `${source.title} (copy)`,
+    docType: source.docType,
+  });
+
+  const db = getDb();
+  const [updated] = await db
+    .update(documents)
+    .set({
+      contentJson: source.contentJson,
+      plainTextContent: source.plainTextContent,
+      icon: source.icon,
+    })
+    .where(eq(documents.id, copy.id))
+    .returning();
+  revalidatePath(`/app/${source.workspaceId}`, "layout");
+  return updated;
 }
 
 /* -------------------------------------------------------------------------- */

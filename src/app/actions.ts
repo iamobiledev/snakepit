@@ -18,6 +18,7 @@ import {
   getDocumentWithAccess,
   getDocumentForUser,
   setDocumentLock,
+  duplicateDocument,
 } from "@/lib/documents/service";
 import { listDocumentActivity } from "@/lib/documents/activity";
 import {
@@ -244,6 +245,20 @@ export async function actionCreateDocument(formData: FormData) {
   });
   revalidatePath(`/app/${workspaceId}`);
   return doc;
+}
+
+export async function actionDuplicateDocument(input: {
+  documentId: string;
+}): Promise<ActionResult<{ id: string; workspaceId: string }>> {
+  const session = await requireVerifiedSession();
+  return run(async () => {
+    const parsed = z.object({ documentId: z.string().min(1) }).parse(input);
+    const copy = await duplicateDocument({
+      userId: session.user.id,
+      documentId: parsed.documentId,
+    });
+    return { id: copy.id, workspaceId: copy.workspaceId };
+  });
 }
 
 export async function actionSetDocumentLock(input: {

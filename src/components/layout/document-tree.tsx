@@ -1,23 +1,54 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { BookOpen, ChevronRight, FileText, Lock, Plus } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import {
+  BookOpen,
+  ChevronRight,
+  Copy,
+  FileText,
+  Link2,
+  Lock,
+  MoreHorizontal,
+  PenLine,
+  Plus,
+  Star,
+  StarOff,
+  Trash2,
+} from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  actionDuplicateDocument,
+  actionRenameDocument,
+  actionToggleFavorite,
+  actionTrashDocument,
+} from "@/app/actions";
 import type { DocumentTreeNode } from "@/lib/documents/types";
 
 /**
  * Collapsible page tree for the sidebar. Ancestors of the active page are
- * expanded automatically.
+ * expanded automatically. Rows expose Notion-style hover controls: a "···"
+ * menu (rename, favorite, copy link, duplicate, trash) and an add-page "+".
  */
 export function DocumentTree({
   nodes,
   workspaceId,
   activePath,
+  favoriteIds,
   onCreateChild,
 }: {
   nodes: DocumentTreeNode[];
   workspaceId: string;
   activePath: string;
+  favoriteIds?: Set<string>;
   onCreateChild?: (parentId: string) => void;
 }) {
   const activeDocId = useMemo(() => {
@@ -75,6 +106,7 @@ export function DocumentTree({
           workspaceId={workspaceId}
           activeDocId={activeDocId}
           expanded={expanded}
+          favoriteIds={favoriteIds}
           onToggle={toggle}
           onCreateChild={onCreateChild}
         />
@@ -89,6 +121,7 @@ function TreeItem({
   workspaceId,
   activeDocId,
   expanded,
+  favoriteIds,
   onToggle,
   onCreateChild,
 }: {
@@ -97,12 +130,82 @@ function TreeItem({
   workspaceId: string;
   activeDocId: string | null;
   expanded: Set<string>;
+  favoriteIds?: Set<string>;
   onToggle: (id: string) => void;
   onCreateChild?: (parentId: string) => void;
 }) {
+  const router = useRouter();
   const isActive = node.id === activeDocId;
   const isExpanded = expanded.has(node.id);
   const hasChildren = node.children.length > 0;
+  const isFavorited = favoriteIds?.has(node.id) ?? false;
+  const docUrl = `/app/${workspaceId}/docs/${node.id}`;
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [, startTransition] = useTransition();
+  const renameCommittedRef = useRef(false);
+
+  const commitRename = (value: string) => {
+    if (renameCommittedRef.current) return;
+    renameCommittedRef.current = true;
+    setRenaming(false);
+    const title = value.trim();
+    if (!title || title === node.title) return;
+    startTransition(async () => {
+      const result = await actionRenameDocument({ documentId: node.id, title });
+      if (result.ok) {
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    });
+  };
+
+  const toggleFavorite = () => {
+    startTransition(async () => {
+      const result = await actionToggleFavorite({ documentId: node.id });
+      if (result.ok) {
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    });
+  };
+
+  const copyLink = async () => {
+    await navigator.clipboard.writeText(`${window.location.origin}${docUrl}`);
+    toast.success("Link copied to clipboard");
+  };
+
+  const duplicate = () => {
+    startTransition(async () => {
+      const result = await actionDuplicateDocument({ documentId: node.id });
+      if (result.ok) {
+        toast.success("Page duplicated");
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    });
+  };
+
+  const moveToTrash = () => {
+    startTransition(async () => {
+      const result = await actionTrashDocument({ documentId: node.id });
+      if (result.ok) {
+        toast.success("Moved to trash");
+        if (isActive) router.push(`/app/${workspaceId}`);
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    });
+  };
+
+  const controlsVisibility = menuOpen
+    ? "opacity-100"
+    : "opacity-0 focus-visible:opacity-100 group-hover:opacity-100";
 
   return (
     <li
@@ -147,31 +250,110 @@ function TreeItem({
             </button>
           )}
         </span>
-        <Link
-          href={`/app/${workspaceId}/docs/${node.id}`}
-          className={`flex min-w-0 flex-1 items-center gap-1.5 py-1 pl-0.5 text-sm font-medium ${
-            isActive
-              ? "text-[var(--foreground)]"
-              : "text-[var(--muted-foreground)]"
-          }`}
-        >
-          <span className="truncate">{node.title || "Untitled"}</span>
-          {node.locked && (
-            <Lock
-              aria-label="Locked"
-              className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]"
-            />
-          )}
-        </Link>
-        {onCreateChild && (
-          <button
-            type="button"
-            aria-label={`Add page inside ${node.title || "Untitled"}`}
-            onClick={() => onCreateChild(node.id)}
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--muted-foreground)] opacity-0 transition-opacity hover:bg-[rgba(55,53,47,0.12)] focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
+
+        {renaming ? (
+          <input
+            autoFocus
+            defaultValue={node.title}
+            aria-label="Rename page"
+            onFocus={(event) => event.target.select()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitRename(event.currentTarget.value);
+              } else if (event.key === "Escape") {
+                renameCommittedRef.current = true;
+                setRenaming(false);
+              }
+            }}
+            onBlur={(event) => commitRename(event.currentTarget.value)}
+            className="mx-0.5 min-w-0 flex-1 rounded border border-[var(--primary)] bg-[var(--card)] px-1 py-0.5 text-sm font-medium outline-none"
+          />
+        ) : (
+          <Link
+            href={docUrl}
+            className={`flex min-w-0 flex-1 items-center gap-1.5 py-1 pl-0.5 text-sm font-medium ${
+              isActive
+                ? "text-[var(--foreground)]"
+                : "text-[var(--muted-foreground)]"
+            }`}
           >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
+            <span className="truncate">{node.title || "Untitled"}</span>
+            {node.locked && (
+              <Lock
+                aria-label="Locked"
+                className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]"
+              />
+            )}
+          </Link>
+        )}
+
+        {!renaming && (
+          <span
+            className={`flex shrink-0 items-center gap-px transition-opacity ${controlsVisibility}`}
+          >
+            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`Page options for ${node.title || "Untitled"}`}
+                  title="Delete, duplicate, and more…"
+                  className="flex h-5 w-5 items-center justify-center rounded text-[var(--muted-foreground)] hover:bg-[rgba(55,53,47,0.12)] focus-visible:outline-none"
+                >
+                  <MoreHorizontal className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" side="right" className="w-52">
+                <DropdownMenuItem
+                  onSelect={() => {
+                    renameCommittedRef.current = false;
+                    setRenaming(true);
+                  }}
+                >
+                  <PenLine className="h-4 w-4" />
+                  Rename
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={toggleFavorite}>
+                  {isFavorited ? (
+                    <>
+                      <StarOff className="h-4 w-4" />
+                      Remove from favorites
+                    </>
+                  ) : (
+                    <>
+                      <Star className="h-4 w-4" />
+                      Add to favorites
+                    </>
+                  )}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void copyLink()}>
+                  <Link2 className="h-4 w-4" />
+                  Copy link
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={duplicate}>
+                  <Copy className="h-4 w-4" />
+                  Duplicate
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem destructive onSelect={moveToTrash}>
+                  <Trash2 className="h-4 w-4" />
+                  Move to trash
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {onCreateChild && (
+              <button
+                type="button"
+                aria-label={`Add page inside ${node.title || "Untitled"}`}
+                title="Add a page inside"
+                onClick={() => onCreateChild(node.id)}
+                className="flex h-5 w-5 items-center justify-center rounded text-[var(--muted-foreground)] hover:bg-[rgba(55,53,47,0.12)] focus-visible:outline-none"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </span>
         )}
       </div>
       {hasChildren && isExpanded && (
@@ -184,6 +366,7 @@ function TreeItem({
               workspaceId={workspaceId}
               activeDocId={activeDocId}
               expanded={expanded}
+              favoriteIds={favoriteIds}
               onToggle={onToggle}
               onCreateChild={onCreateChild}
             />

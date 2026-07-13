@@ -170,6 +170,10 @@ test.describe.serial("wikis, roles, activity, invitations", () => {
   });
 
   test("email notifications toggle round-trips", async ({ page }) => {
+    // Normalize state: an interrupted earlier run can leave the flag off.
+    psql(
+      `UPDATE \"user\" SET email_notifications = true WHERE email='${DEMO_EMAIL}'`,
+    );
     await signIn(page, DEMO_EMAIL);
     await page.goto(`/app/${wsId}/settings`);
     const toggle = page.getByRole("switch", {

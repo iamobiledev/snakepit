@@ -96,6 +96,16 @@ export function DocumentEditor({
   // Mutable save-machine state (only touched from handlers/effects).
   const titleRef = useRef(startingTitle);
   const statusRef = useRef<SaveStatus>("saved");
+
+  // The page can be renamed from outside (sidebar "···" menu). When the
+  // server sends a new title and there are no unsaved local edits, adopt it
+  // so a later autosave doesn't resurrect the stale title.
+  useEffect(() => {
+    if (statusRef.current === "saved") {
+      setTitle(startingTitle);
+      titleRef.current = startingTitle;
+    }
+  }, [startingTitle]);
   const savingRef = useRef(false);
   const dirtyAgainRef = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
