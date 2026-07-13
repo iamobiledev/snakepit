@@ -19,6 +19,7 @@ import {
   Trash2,
   LogOut,
   Keyboard,
+  UserPlus,
 } from "lucide-react";
 import { brand } from "@/config/brand";
 import { Button } from "@/components/ui/button";
@@ -59,6 +60,13 @@ type AppShellProps = {
   favorites: Array<{ id: string; title: string; workspaceId: string }>;
   /** Every favorited document id for the user (for tree row menus). */
   favoriteIds: string[];
+  /** Pages shared directly with the user (Notion-style "Shared" section). */
+  shared: Array<{
+    id: string;
+    title: string;
+    icon: string | null;
+    workspaceId: string;
+  }>;
   children: React.ReactNode;
 };
 
@@ -70,6 +78,7 @@ export function AppShell({
   trees,
   favorites,
   favoriteIds,
+  shared,
   children,
 }: AppShellProps) {
   const router = useRouter();
@@ -215,6 +224,39 @@ export function AppShell({
                   >
                     <Star className="h-3.5 w-3.5 shrink-0" />
                     <span className="truncate">{fav.title || "Untitled"}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {shared.length > 0 && (
+          <div>
+            <p className="mb-0.5 px-2 py-1 text-xs font-medium text-[var(--muted-foreground)]">
+              Shared
+            </p>
+            <ul className="space-y-px">
+              {shared.map((docItem) => (
+                <li key={docItem.id}>
+                  <Link
+                    href={`/app/${docItem.workspaceId}/docs/${docItem.id}`}
+                    className={`flex items-center gap-1.5 rounded-md px-2 py-1 font-medium transition-colors hover:bg-[var(--sidebar-hover)] ${
+                      pathname?.endsWith(`/docs/${docItem.id}`)
+                        ? "bg-[var(--sidebar-active)] text-[var(--foreground)]"
+                        : "text-[var(--muted-foreground)]"
+                    }`}
+                  >
+                    {docItem.icon ? (
+                      <span className="w-3.5 shrink-0 text-center text-sm leading-none">
+                        {docItem.icon}
+                      </span>
+                    ) : (
+                      <UserPlus className="h-3.5 w-3.5 shrink-0" />
+                    )}
+                    <span className="truncate">
+                      {docItem.title || "Untitled"}
+                    </span>
                   </Link>
                 </li>
               ))}
