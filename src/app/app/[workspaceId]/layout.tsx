@@ -2,7 +2,8 @@ import { requireVerifiedSession, platformRoleOf } from "@/lib/session";
 import {
   listUserWorkspaces,
   listWorkspaceDocumentTree,
-  listFavoriteDocuments,
+  listAllFavoriteDocuments,
+  listFavoriteDocumentIds,
 } from "@/lib/documents/service";
 import { AppShell } from "@/components/layout/app-shell";
 
@@ -30,9 +31,16 @@ export default async function WorkspaceLayout({
     );
   }
 
-  const [tree, favoriteDocs] = await Promise.all([
-    listWorkspaceDocumentTree(session.user.id, workspaceId),
-    listFavoriteDocuments(session.user.id, workspaceId),
+  // Notion-style sidebar: trees for every workspace (Private + Teamspaces).
+  const [trees, favoriteDocs, favoriteIds] = await Promise.all([
+    Promise.all(
+      workspaces.map(async (ws) => ({
+        workspaceId: ws.id,
+        nodes: await listWorkspaceDocumentTree(session.user.id, ws.id),
+      })),
+    ),
+    listAllFavoriteDocuments(session.user.id),
+    listFavoriteDocumentIds(session.user.id),
   ]);
 
   return (
@@ -51,8 +59,13 @@ export default async function WorkspaceLayout({
         isPersonal: w.isPersonal,
         role: w.role,
       }))}
-      tree={tree}
-      favorites={favoriteDocs.map((f) => ({ id: f.id, title: f.title }))}
+      trees={trees}
+      favorites={favoriteDocs.map((f) => ({
+        id: f.id,
+        title: f.title,
+        workspaceId: f.workspaceId,
+      }))}
+      favoriteIds={favoriteIds}
     >
       {children}
     </AppShell>

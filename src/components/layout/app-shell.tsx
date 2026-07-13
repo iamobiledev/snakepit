@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import {
   BookLock,
   BookOpen,
+  ChevronRight,
   ChevronsUpDown,
   Home,
   Menu,
@@ -43,13 +44,21 @@ import { DocumentTree } from "./document-tree";
 import { CommandPalette } from "@/components/search/command-palette";
 import { ShortcutsDialog } from "./shortcuts-dialog";
 
+type WorkspaceTree = {
+  workspaceId: string;
+  nodes: DocumentTreeNode[];
+};
+
 type AppShellProps = {
   user: { name: string; email: string };
   platformRole: "admin" | "developer";
   workspace: WorkspaceSummary;
   workspaces: WorkspaceSummary[];
-  tree: DocumentTreeNode[];
-  favorites: Array<{ id: string; title: string }>;
+  /** Sidebar trees for every workspace (Private + Teamspaces sections). */
+  trees: WorkspaceTree[];
+  favorites: Array<{ id: string; title: string; workspaceId: string }>;
+  /** Every favorited document id for the user (for tree row menus). */
+  favoriteIds: string[];
   children: React.ReactNode;
 };
 
@@ -58,8 +67,9 @@ export function AppShell({
   platformRole,
   workspace,
   workspaces,
-  tree,
+  trees,
   favorites,
+  favoriteIds,
   children,
 }: AppShellProps) {
   const router = useRouter();
@@ -68,26 +78,31 @@ export function AppShell({
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [creating, startCreating] = useTransition();
 
+  const favoriteIdSet = new Set(favoriteIds);
   const canEditDocs = workspace.role !== "guest";
 
   const createPage = useCallback(
-    (parentId?: string, docType: "doc" | "wiki" = "doc") => {
-      if (!canEditDocs || creating) return;
+    (
+      parentId?: string,
+      docType: "doc" | "wiki" = "doc",
+      targetWorkspaceId: string = workspace.id,
+    ) => {
+      if (creating) return;
       startCreating(async () => {
         try {
           const formData = new FormData();
-          formData.set("workspaceId", workspace.id);
+          formData.set("workspaceId", targetWorkspaceId);
           if (parentId) formData.set("parentId", parentId);
           formData.set("title", "Untitled");
           formData.set("docType", docType);
           const doc = await actionCreateDocument(formData);
-          router.push(`/app/${workspace.id}/docs/${doc.id}`);
+          router.push(`/app/${targetWorkspaceId}/docs/${doc.id}`);
         } catch {
           toast.error("Couldn't create the page. Please try again.");
         }
       });
     },
-    [canEditDocs, creating, router, workspace.id],
+    [creating, router, workspace.id],
   );
 
   // Global keyboard shortcuts (Cmd+K handled by the palette itself).
@@ -112,14 +127,20 @@ export function AppShell({
         !event.altKey
       ) {
         event.preventDefault();
-        createPage();
+        if (canEditDocs) createPage();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [createPage]);
+  }, [createPage, canEditDocs]);
 
   const isHome = pathname === `/app/${workspace.id}`;
+
+  const personal = workspaces.find((w) => w.isPersonal);
+  const personalTree = personal
+    ? trees.find((t) => t.workspaceId === personal.id)?.nodes ?? []
+    : [];
+  const teamspaces = workspaces.filter((w) => !w.isPersonal);
 
   const sidebar = (
     <div className="flex h-full flex-col text-sm">
@@ -185,7 +206,7 @@ export function AppShell({
               {favorites.map((fav) => (
                 <li key={fav.id}>
                   <Link
-                    href={`/app/${workspace.id}/docs/${fav.id}`}
+                    href={`/app/${fav.workspaceId}/docs/${fav.id}`}
                     className={`flex items-center gap-1.5 rounded-md px-2 py-1 font-medium transition-colors hover:bg-[var(--sidebar-hover)] ${
                       pathname?.endsWith(`/docs/${fav.id}`)
                         ? "bg-[var(--sidebar-active)] text-[var(--foreground)]"
@@ -201,61 +222,55 @@ export function AppShell({
           </div>
         )}
 
-        <div className="group/section">
-          <div className="mb-0.5 flex items-center justify-between px-2 py-1">
-            <p className="text-xs font-medium text-[var(--muted-foreground)]">
-              {workspace.isPersonal ? "Private" : "Pages"}
-            </p>
-            {canEditDocs && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label="Add a page"
-                    disabled={creating}
-                    className="flex h-5 w-5 items-center justify-center rounded text-[var(--muted-foreground)] opacity-0 transition-opacity hover:bg-[var(--sidebar-hover)] focus-visible:opacity-100 focus-visible:outline-none group-hover/section:opacity-100"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-48">
-                  <DropdownMenuItem onSelect={() => createPage(undefined, "doc")}>
-                    <Plus className="h-4 w-4" />
-                    New page
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => createPage(undefined, "wiki")}>
-                    <BookOpen className="h-4 w-4" />
-                    New wiki
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+        {personal && (
+          <SidebarSection
+            label="Private"
+            canAdd
+            adding={creating}
+            onAddPage={() => createPage(undefined, "doc", personal.id)}
+            onAddWiki={() => createPage(undefined, "wiki", personal.id)}
+          >
+            {personalTree.length === 0 ? (
+              <p className="px-2 py-1 text-[var(--muted-foreground)]">
+                No private pages yet.
+              </p>
+            ) : (
+              <DocumentTree
+                nodes={personalTree}
+                workspaceId={personal.id}
+                activePath={pathname ?? ""}
+                favoriteIds={favoriteIdSet}
+                onCreateChild={(parentId) =>
+                  createPage(parentId, "doc", personal.id)
+                }
+              />
             )}
-          </div>
-          {tree.length === 0 ? (
-            <p className="px-2 py-1 text-[var(--muted-foreground)]">
-              No pages yet.
-              {canEditDocs && " Press N to start writing."}
+          </SidebarSection>
+        )}
+
+        {teamspaces.length > 0 && (
+          <div>
+            <p className="mb-0.5 px-2 py-1 text-xs font-medium text-[var(--muted-foreground)]">
+              Teamspaces
             </p>
-          ) : (
-            <DocumentTree
-              nodes={tree}
-              workspaceId={workspace.id}
-              activePath={pathname ?? ""}
-              onCreateChild={canEditDocs ? createPage : undefined}
-            />
-          )}
-          {canEditDocs && (
-            <button
-              type="button"
-              onClick={() => createPage()}
-              disabled={creating}
-              className="mt-px flex w-full items-center gap-1.5 rounded-md px-2 py-1 font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--sidebar-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
-            >
-              <Plus className="h-3.5 w-3.5 shrink-0" />
-              New page
-            </button>
-          )}
-        </div>
+            <ul className="space-y-px">
+              {teamspaces.map((ws) => (
+                <TeamspaceItem
+                  key={ws.id}
+                  workspace={ws}
+                  nodes={trees.find((t) => t.workspaceId === ws.id)?.nodes ?? []}
+                  isCurrent={ws.id === workspace.id}
+                  pathname={pathname ?? ""}
+                  favoriteIds={favoriteIdSet}
+                  creating={creating}
+                  onCreatePage={(parentId, docType) =>
+                    createPage(parentId, docType, ws.id)
+                  }
+                />
+              ))}
+            </ul>
+          </div>
+        )}
       </nav>
 
       <div className="space-y-px px-2 py-2">
@@ -386,6 +401,169 @@ export function AppShell({
   );
 }
 
+/** Section header with a hover-reveal "+" (new page / new wiki) menu. */
+function SidebarSection({
+  label,
+  canAdd,
+  adding,
+  onAddPage,
+  onAddWiki,
+  children,
+}: {
+  label: string;
+  canAdd: boolean;
+  adding?: boolean;
+  onAddPage: () => void;
+  onAddWiki: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="group/section">
+      <div className="mb-0.5 flex items-center justify-between px-2 py-1">
+        <p className="text-xs font-medium text-[var(--muted-foreground)]">
+          {label}
+        </p>
+        {canAdd && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label={`Add a page to ${label}`}
+                disabled={adding}
+                className="flex h-5 w-5 items-center justify-center rounded text-[var(--muted-foreground)] opacity-0 transition-opacity hover:bg-[var(--sidebar-hover)] focus-visible:opacity-100 focus-visible:outline-none group-hover/section:opacity-100 data-[state=open]:opacity-100"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-48">
+              <DropdownMenuItem onSelect={onAddPage}>
+                <Plus className="h-4 w-4" />
+                New page
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onAddWiki}>
+                <BookOpen className="h-4 w-4" />
+                New wiki
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** A Notion-style teamspace: avatar row that expands into its page tree. */
+function TeamspaceItem({
+  workspace,
+  nodes,
+  isCurrent,
+  pathname,
+  favoriteIds,
+  creating,
+  onCreatePage,
+}: {
+  workspace: WorkspaceSummary;
+  nodes: DocumentTreeNode[];
+  isCurrent: boolean;
+  pathname: string;
+  favoriteIds: Set<string>;
+  creating: boolean;
+  onCreatePage: (parentId?: string, docType?: "doc" | "wiki") => void;
+}) {
+  // The active teamspace starts expanded; the rest start collapsed.
+  const [expanded, setExpanded] = useState(isCurrent);
+  const canEdit = workspace.role !== "guest";
+
+  return (
+    <li>
+      <div
+        className={`group/ts flex items-center rounded-md pr-1 transition-colors hover:bg-[var(--sidebar-hover)] ${
+          isCurrent && pathname === `/app/${workspace.id}`
+            ? "bg-[var(--sidebar-active)]"
+            : ""
+        }`}
+      >
+        {/* Avatar swaps to a chevron on hover, like Notion. */}
+        <button
+          type="button"
+          aria-label={expanded ? "Collapse teamspace" : "Expand teamspace"}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((prev) => !prev)}
+          className="relative flex h-6 w-6 shrink-0 items-center justify-center focus-visible:outline-none"
+        >
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity group-hover/ts:opacity-0">
+            <span className="flex h-5 w-5 items-center justify-center rounded bg-[var(--sidebar-active)] text-[11px] font-semibold text-[var(--foreground)]">
+              {workspace.name[0]?.toUpperCase() ?? "T"}
+            </span>
+          </span>
+          <span className="absolute inset-0.5 flex items-center justify-center rounded text-[var(--muted-foreground)] opacity-0 transition-opacity hover:bg-[rgba(55,53,47,0.12)] group-hover/ts:opacity-100">
+            <ChevronRight
+              className={`h-3.5 w-3.5 transition-transform ${
+                expanded ? "rotate-90" : ""
+              }`}
+            />
+          </span>
+        </button>
+        <Link
+          href={`/app/${workspace.id}`}
+          className={`min-w-0 flex-1 truncate py-1 pl-1 text-sm font-medium ${
+            isCurrent ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]"
+          }`}
+        >
+          {workspace.name}
+        </Link>
+        {canEdit && (
+          <button
+            type="button"
+            aria-label={`Add a page to ${workspace.name}`}
+            title="Add a page"
+            disabled={creating}
+            onClick={() => {
+              setExpanded(true);
+              onCreatePage();
+            }}
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--muted-foreground)] opacity-0 transition-opacity hover:bg-[rgba(55,53,47,0.12)] focus-visible:opacity-100 focus-visible:outline-none group-hover/ts:opacity-100"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
+      {expanded && (
+        <div className="pl-3">
+          {nodes.length === 0 ? (
+            <p className="px-2 py-1 text-[var(--muted-foreground)]">
+              No pages yet.
+            </p>
+          ) : (
+            <DocumentTree
+              nodes={nodes}
+              workspaceId={workspace.id}
+              activePath={pathname}
+              favoriteIds={favoriteIds}
+              onCreateChild={
+                canEdit ? (parentId) => onCreatePage(parentId) : undefined
+              }
+            />
+          )}
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => onCreatePage()}
+              disabled={creating}
+              className="mt-px flex w-full items-center gap-1.5 rounded-md px-2 py-1 font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--sidebar-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+            >
+              <Plus className="h-3.5 w-3.5 shrink-0" />
+              New page
+            </button>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
 function SidebarItem({
   icon,
   label,
@@ -476,10 +654,10 @@ function WorkspaceSwitcher({
               ))}
             </>
           )}
-          <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
+          <DropdownMenuLabel>Teamspaces</DropdownMenuLabel>
           {shared.length === 0 && (
             <p className="px-2 pb-1.5 text-xs text-[var(--muted-foreground)]">
-              No shared workspaces yet.
+              No teamspaces yet.
             </p>
           )}
           {shared.map((ws) => (
@@ -498,7 +676,7 @@ function WorkspaceSwitcher({
               <DropdownMenuItem asChild>
                 <Link href="/app/new">
                   <Plus className="h-4 w-4" />
-                  New workspace
+                  New teamspace
                 </Link>
               </DropdownMenuItem>
             </>

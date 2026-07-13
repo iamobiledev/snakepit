@@ -175,6 +175,78 @@ test.describe.serial("core flows", () => {
     ).toBeVisible();
   });
 
+  test("sidebar has Private/Teamspaces sections and a '···' page menu", async ({
+    page,
+  }) => {
+    await signIn(page, DEMO_EMAIL);
+    await page.goto(docUrl);
+
+    // Notion-style sections.
+    const nav = page.getByRole("navigation", { name: "Documents" });
+    await expect(nav.getByText("Private", { exact: true })).toBeVisible();
+    await expect(nav.getByText("Teamspaces", { exact: true })).toBeVisible();
+    await expect(nav.getByText("My Workspace")).toBeVisible();
+
+    // Inline rename via the row's ··· menu.
+    const row = nav
+      .getByRole("treeitem")
+      .filter({ hasText: docTitle })
+      .first();
+    await row.hover();
+    await row.getByRole("button", { name: /page options/i }).first().click();
+    await page.getByRole("menuitem", { name: "Rename" }).click();
+    const renameInput = page.getByLabel("Rename page");
+    await renameInput.fill(`${docTitle} renamed`);
+    await renameInput.press("Enter");
+    await expect(
+      nav.getByText(`${docTitle} renamed`).first(),
+    ).toBeVisible({ timeout: 10_000 });
+
+    // Rename back so later tests keep working with the original title.
+    const renamedRow = nav
+      .getByRole("treeitem")
+      .filter({ hasText: `${docTitle} renamed` })
+      .first();
+    await renamedRow.hover();
+    await renamedRow
+      .getByRole("button", { name: /page options/i })
+      .first()
+      .click();
+    await page.getByRole("menuitem", { name: "Rename" }).click();
+    await page.getByLabel("Rename page").fill(docTitle);
+    await page.getByLabel("Rename page").press("Enter");
+    await expect(nav.getByText(docTitle).first()).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Duplicate, then trash the copy from the same menu.
+    const originalRow = nav
+      .getByRole("treeitem")
+      .filter({ hasText: docTitle })
+      .first();
+    await originalRow.hover();
+    await originalRow
+      .getByRole("button", { name: /page options/i })
+      .first()
+      .click();
+    await page.getByRole("menuitem", { name: "Duplicate" }).click();
+    const copyRow = nav
+      .getByRole("treeitem")
+      .filter({ hasText: `${docTitle} (copy)` })
+      .first();
+    await expect(copyRow).toBeVisible({ timeout: 10_000 });
+
+    await copyRow.hover();
+    await copyRow
+      .getByRole("button", { name: /page options/i })
+      .first()
+      .click();
+    await page.getByRole("menuitem", { name: /move to trash/i }).click();
+    await expect(
+      nav.getByText(`${docTitle} (copy)`),
+    ).toHaveCount(0, { timeout: 10_000 });
+  });
+
   test("'/code' inserts a Notion-style code block with highlighting", async ({
     page,
   }) => {
@@ -314,15 +386,17 @@ test.describe.serial("core flows", () => {
     await page.getByRole("menuitem", { name: /move to trash/i }).click();
     await page.waitForURL(/\/app\/[^/]+$/);
 
-    // Trash view lists it
+    // Trash view lists it (title is "… v2" after the version-history test;
+    // match it exactly since a trashed "(copy)" page may also be present).
     await page.getByRole("link", { name: "Trash" }).click();
     await page.waitForURL(/\/trash/);
-    await expect(page.getByText(docTitle)).toBeVisible();
+    const trashedTitle = `${docTitle} v2`;
+    await expect(page.getByText(trashedTitle)).toBeVisible();
     await shot(page, "07-trash");
 
     // Restore the parent page specifically (its sub-page is also listed).
     await page
-      .locator("li", { hasText: docTitle })
+      .locator("li", { hasText: trashedTitle })
       .first()
       .getByRole("button", { name: /restore/i })
       .click();
