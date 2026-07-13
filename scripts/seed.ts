@@ -127,8 +127,9 @@ async function main() {
   const existingOutsider = await db.query.user.findFirst({
     where: (u, { eq }) => eq(u.email, outsiderEmail),
   });
-  if (!existingOutsider) {
-    const outsiderId = nanoid();
+  let outsiderId = existingOutsider?.id;
+  if (!outsiderId) {
+    outsiderId = nanoid();
     await db.insert(schema.user).values({
       id: outsiderId,
       name: "Taylor Teammate",
@@ -144,6 +145,30 @@ async function main() {
       password: await hashPassword(password),
     });
     console.log(`Created user ${outsiderEmail} (no workspace membership)`);
+  }
+
+  // Demo of page-level sharing: give the outsider view access to one doc
+  // ("Shared" sidebar section + Notion-style Share popover people list).
+  const sharedDoc = await db.query.documents.findFirst({
+    where: (d, { eq }) => eq(d.workspaceId, workspaceId!),
+  });
+  if (sharedDoc) {
+    const existingGrant = await db.query.documentPermissions.findFirst({
+      where: (p, { and, eq }) =>
+        and(eq(p.documentId, sharedDoc.id), eq(p.userId, outsiderId!)),
+    });
+    if (!existingGrant) {
+      await db.insert(schema.documentPermissions).values({
+        id: nanoid(),
+        documentId: sharedDoc.id,
+        userId: outsiderId,
+        level: "view",
+        invitedById: userId!,
+      });
+      console.log(
+        `Shared "${sharedDoc.title}" with ${outsiderEmail} (Can view)`,
+      );
+    }
   }
 
   console.log("\nSeed complete.");

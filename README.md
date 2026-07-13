@@ -10,7 +10,7 @@ Docloom is a Vercel-first collaborative knowledge base built with Next.js (App R
 - **Wikis** — a second document type for canonical team knowledge. Wikis can be **locked** by admins: locked wikis are read-only for everyone except workspace owners/admins and platform admins.
 - **Change log** — every page has an Activity history (who created/edited/renamed/moved/trashed/published/locked it, when) with autosave edits coalesced into readable sessions, alongside restorable version snapshots.
 - **Organization** — favorites, recently-viewed, soft-delete trash with restore (nothing is permanently deleted from the UI), and automatic version snapshots on significant edits with preview + restore.
-- **Sharing & permissions** — every user gets a private **Personal notebook** only they can see; team workspaces where every member sees every page (admins manage members, editors write, viewers read); publish-to-web for public read-only pages; a request-access screen (never an error) for links you can't open.
+- **Sharing & permissions** — Notion-style page sharing from the **Share** popover (Share | Publish tabs): invite anyone by email with **Full access / Can edit / Can view**, including people outside the workspace (emails without an account get a pending invitation that converts on sign-up); a per-page **General access** switch between *Only people invited* and *Everyone at {workspace}*; a **Shared** sidebar section for pages shared with you. Every user also gets a private **Personal notebook** (its pages are invite-only but individually shareable); team workspaces where every member sees every workspace-visible page (admins manage members, editors write, viewers read); publish-to-web for public read-only pages (independent of in-app access); and a request-access screen (never an error) for links you can't open.
 - **User types** — platform `admin` (creates team workspaces, locks/edits locked wikis) and `developer` (regular user). The first registered user automatically becomes an admin.
 - **Email notifications** — invitation emails, "you've joined a workspace" + "your invite was accepted" emails, and document-activity alerts to a page's creator and previous editors (throttled to one email per person per page per 6 hours, per-user opt-out in Settings → Notifications). Pending invitations show when the email was sent, with one-click resend.
 - **Search** — fast Postgres full-text + trigram search with weighted ranking (exact title → prefix → fuzzy → body → recency), a global **⌘K / Ctrl+K** palette with highlighted snippets and owner/date/scope filters, permission-filtered inside SQL.
@@ -337,6 +337,15 @@ The simulation suite covers the signature checks, the 3-second ack budget, event
 ### Authorization
 
 Workspace IDs, roles, and permissions are resolved on the server from Neon membership rows. Client-supplied roles are never trusted (`src/lib/permissions.ts`).
+
+### Page-level sharing
+
+`computeDocumentAccess()` (`src/lib/documents/access.ts`) is the single source of truth, mirrored in search SQL and Slack unfurling:
+
+- **Levels** — `Full access` (edit + manage sharing), `Can edit`, `Can view`. Workspace owners/admins and the page creator implicitly have full access; members edit; guests view.
+- **Direct shares** — `document_permissions` rows grant page access independent of workspace membership. Inviting an email without an account creates a pending `document_invitations` row (7-day token, accepted at `/invitations/[token]`) that converts to a permission on sign-up.
+- **General access** — per page: *Only people invited* (`visibility = private`; only the creator + direct shares can open it) or *Everyone at {workspace}* (`visibility = workspace`). Personal-notebook pages are always invite-only but can be shared person-by-person.
+- **Publish to web** — tracked by `published_at`/`public_slug` alone and fully independent of in-app access: an invite-only page can still be published read-only at `/p/[slug]`.
 
 ### Search
 
