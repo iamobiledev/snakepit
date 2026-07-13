@@ -513,7 +513,9 @@ export function DocumentEditor({
 
       {!readOnly && <BlockHandle editor={editor} />}
 
-      <EditorContent editor={editor} />
+      <div className="editor-canvas">
+        <EditorContent editor={editor} />
+      </div>
 
       <input
         ref={fileInputRef}

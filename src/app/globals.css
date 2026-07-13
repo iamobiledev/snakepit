@@ -306,13 +306,23 @@ body {
 
 /* ---- Notion-style block handles & drag reordering ---- */
 
-/* Leave a left gutter for the hover-reveal + / grip controls. */
-.editor-with-handles {
-  padding-left: 2.75rem;
+/*
+ * Leave a left gutter for the hover-reveal + / grip controls.
+ * Use margin on direct children (TipTap’s recommended pattern) so floating-ui
+ * can place the handle to the left of each block without colliding with text.
+ * Raise specificity above Tailwind Typography’s `.prose` resets.
+ */
+.ProseMirror.editor-with-handles > * {
+  margin-inline-start: 2.75rem;
 }
 
 .editor-title {
   padding-left: 2.75rem;
+}
+
+/* Editor canvas is the positioning context for the drag-handle portal. */
+.editor-canvas {
+  position: relative;
 }
 
 /* Subtle hover highlight on the active block (set via JS). */
@@ -344,21 +354,15 @@ body {
   background-color: rgba(35, 131, 226, 0.14);
 }
 
-/* TipTap DragHandle portal target — hidden until a block is hovered. */
+/* Custom Notion-style block handle (fixed, hover-reveal). */
 .block-drag-handle {
   display: flex;
   align-items: flex-start;
-  opacity: 1;
-  z-index: 20;
+  pointer-events: auto;
 }
 
-.block-drag-handle[style*="visibility: hidden"],
-.block-drag-handle[style*="visibility:hidden"] {
-  pointer-events: none;
-}
-
-.block-drag-handle[data-dragging="true"] {
-  opacity: 0.4;
+.block-drag-handle.is-dragging {
+  opacity: 0.35;
 }
 
 /*
