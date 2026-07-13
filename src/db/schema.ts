@@ -47,6 +47,18 @@ export const documentVisibilityEnum = pgEnum("document_visibility", [
 
 export const documentTypeEnum = pgEnum("document_type", ["doc", "wiki"]);
 
+/**
+ * Per-document access levels for direct shares (Notion-style):
+ * - full_access: edit + manage sharing
+ * - edit: edit content
+ * - view: read-only
+ */
+export const documentPermissionLevelEnum = pgEnum("document_permission_level", [
+  "full_access",
+  "edit",
+  "view",
+]);
+
 export const documentActivityActionEnum = pgEnum("document_activity_action", [
   "created",
   "edited",
@@ -59,6 +71,9 @@ export const documentActivityActionEnum = pgEnum("document_activity_action", [
   "version_restored",
   "locked",
   "unlocked",
+  "shared",
+  "unshared",
+  "general_access_changed",
 ]);
 
 /* -------------------------------------------------------------------------- */
@@ -297,6 +312,76 @@ export const documents = pgTable(
       sql`${t.title} gin_trgm_ops`,
     ),
     index("documents_search_vector_idx").using("gin", t.searchVector),
+  ],
+);
+
+/**
+ * Direct per-document shares (Notion-style "Share" popover).
+ * Grants access to a single page, independent of workspace membership —
+ * this is how pages are shared with people outside the workspace and how
+ * "Only people invited" pages are opened up to specific teammates.
+ */
+export const documentPermissions = pgTable(
+  "document_permissions",
+  {
+    id: text("id").primaryKey(),
+    documentId: text("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    level: documentPermissionLevelEnum("level").notNull().default("view"),
+    invitedById: text("invited_by_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("document_permissions_doc_user_uidx").on(t.documentId, t.userId),
+    index("document_permissions_user_idx").on(t.userId),
+  ],
+);
+
+/**
+ * Pending document shares for emails without an account yet.
+ * Accepting the emailed link (after sign-up) converts the invitation into a
+ * document_permissions row.
+ */
+export const documentInvitations = pgTable(
+  "document_invitations",
+  {
+    id: text("id").primaryKey(),
+    documentId: text("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    level: documentPermissionLevelEnum("level").notNull().default("view"),
+    token: text("token").notNull(),
+    status: invitationStatusEnum("status").notNull().default("pending"),
+    invitedById: text("invited_by_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    /** When the invite email was last (re)sent. */
+    lastSentAt: timestamp("last_sent_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("document_invitations_token_uidx").on(t.token),
+    index("document_invitations_email_idx").on(t.email),
+    index("document_invitations_doc_idx").on(t.documentId),
+    index("document_invitations_expires_idx").on(t.expiresAt),
   ],
 );
 
@@ -573,3 +658,5 @@ export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
 export type Document = typeof documents.$inferSelect;
 export type FileRecord = typeof files.$inferSelect;
 export type WorkspaceInvitation = typeof workspaceInvitations.$inferSelect;
+export type DocumentPermission = typeof documentPermissions.$inferSelect;
+export type DocumentInvitation = typeof documentInvitations.$inferSelect;
