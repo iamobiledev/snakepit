@@ -1,8 +1,24 @@
 "use client";
 
 import { useCallback } from "react";
-import { DocumentEditor } from "@/components/editor/document-editor";
+import dynamic from "next/dynamic";
 import { actionSaveDocument } from "@/app/actions";
+
+const DocumentEditor = dynamic(
+  () =>
+    import("@/components/editor/document-editor").then(
+      (module) => module.DocumentEditor,
+    ),
+  {
+    loading: () => (
+      <div className="flex flex-col gap-4" aria-busy>
+        <div className="h-10 w-2/3 animate-pulse rounded-md bg-[var(--muted)]" />
+        <div className="h-4 w-full animate-pulse rounded bg-[var(--muted)]" />
+        <div className="h-4 w-5/6 animate-pulse rounded bg-[var(--muted)]" />
+      </div>
+    ),
+  },
+);
 
 export function DocumentEditorClient({
   documentId,

@@ -3,7 +3,6 @@ import { Suspense } from "react";
 import { Inter } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
-import { Toaster } from "sonner";
 import { brand } from "@/config/brand";
 import { ThemeProvider, ThemeScript } from "@/components/theme/theme";
 import "./globals.css";
@@ -36,6 +35,10 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const isVercelDeployment = Boolean(
+    process.env.VERCEL || process.env.NEXT_PUBLIC_VERCEL_ENV,
+  );
+
   return (
     <html
       lang="en"
@@ -48,19 +51,13 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <ThemeProvider>
           <Suspense fallback={<RootLoading />}>{children}</Suspense>
-          <Toaster
-            position="bottom-right"
-            toastOptions={{
-              style: {
-                background: "var(--card)",
-                color: "var(--foreground)",
-                border: "1px solid var(--border)",
-              },
-            }}
-          />
         </ThemeProvider>
-        <Analytics />
-        <SpeedInsights />
+        {isVercelDeployment && (
+          <>
+            <Analytics />
+            <SpeedInsights />
+          </>
+        )}
       </body>
     </html>
   );

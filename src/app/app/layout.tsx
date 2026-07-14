@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { Toaster } from "sonner";
 import { requireVerifiedSession } from "@/lib/session";
 import { getOrCreatePersonalWorkspace } from "@/lib/workspaces/service";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,9 +14,21 @@ export default function AppLayout({
   children: React.ReactNode;
 }) {
   return (
-    <Suspense fallback={<AppBootstrapLoading />}>
-      <AuthenticatedApp>{children}</AuthenticatedApp>
-    </Suspense>
+    <>
+      <Suspense fallback={<AppBootstrapLoading />}>
+        <AuthenticatedApp>{children}</AuthenticatedApp>
+      </Suspense>
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          style: {
+            background: "var(--card)",
+            color: "var(--foreground)",
+            border: "1px solid var(--border)",
+          },
+        }}
+      />
+    </>
   );
 }
 

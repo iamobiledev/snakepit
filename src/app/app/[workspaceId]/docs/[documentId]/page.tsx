@@ -21,6 +21,7 @@ import { DocumentEditorClient } from "./editor-client";
 import { DocHeader } from "@/components/documents/doc-header";
 import { RequestAccess } from "@/components/documents/request-access";
 import { RestoreBanner } from "@/components/documents/restore-banner";
+import { StaticDocument } from "@/components/documents/static-document";
 import { Button } from "@/components/ui/button";
 
 export default async function DocumentPage({
@@ -151,13 +152,21 @@ export default async function DocumentPage({
         </div>
       )}
 
-      <DocumentEditorClient
-        documentId={doc.id}
-        workspaceId={doc.workspaceId}
-        initialTitle={doc.title}
-        initialContent={contentJson}
-        readOnly={!editable || trashed}
-      />
+      {!editable || trashed ? (
+        <div>
+          <h1 className="editor-title mb-2 text-4xl font-bold tracking-tight">
+            {doc.title || "Untitled"}
+          </h1>
+          <StaticDocument contentJson={contentJson} />
+        </div>
+      ) : (
+        <DocumentEditorClient
+          documentId={doc.id}
+          workspaceId={doc.workspaceId}
+          initialTitle={doc.title}
+          initialContent={contentJson}
+        />
+      )}
     </div>
   );
 }

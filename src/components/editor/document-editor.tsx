@@ -146,7 +146,10 @@ export function DocumentEditor({
         },
         showOnlyCurrent: true,
       }),
-      Image.configure({ allowBase64: false }),
+      Image.configure({
+        allowBase64: false,
+        HTMLAttributes: { loading: "lazy", decoding: "async" },
+      }),
       Link.configure({
         openOnClick: false,
         autolink: true,

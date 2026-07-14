@@ -2,7 +2,12 @@ import "server-only";
 import { cache } from "react";
 import { and, asc, desc, eq, isNull, isNotNull, inArray, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { revalidatePath } from "next/cache";
+import {
+  cacheLife,
+  cacheTag,
+  revalidatePath,
+  revalidateTag,
+} from "next/cache";
 import { after } from "next/server";
 import {
   getDb,
@@ -37,6 +42,16 @@ import { extractPlainText } from "./plain-text";
 import { slugify } from "@/lib/utils";
 import { logger } from "@/lib/logger";
 import { measureServerOperation } from "@/lib/performance";
+
+const PUBLIC_DOCUMENTS_TAG = "public-documents";
+
+function publicDocumentTag(slug: string) {
+  return `public-document:${slug}`;
+}
+
+function invalidatePublicDocument(slug: string | null | undefined) {
+  if (slug) revalidateTag(publicDocumentTag(slug), { expire: 0 });
+}
 
 /* -------------------------------------------------------------------------- */
 /* Access                                                                      */
@@ -719,6 +734,8 @@ export async function saveDocumentContent(opts: {
 
   if (title !== existing.title) {
     await recomputeBreadcrumbs(db, existing.id);
+    // A renamed page can be embedded as a sub-page in any published page.
+    revalidateTag(PUBLIC_DOCUMENTS_TAG, { expire: 0 });
     // Refresh the sidebar tree (and any sub-page links) that show this title.
     revalidatePath(`/app/${existing.workspaceId}`, "layout");
     await recordDocumentActivity({
@@ -740,6 +757,7 @@ export async function saveDocumentContent(opts: {
   }
 
   if (existing.publishedAt && existing.publicSlug) {
+    invalidatePublicDocument(existing.publicSlug);
     revalidatePath(`/p/${existing.publicSlug}`);
   }
 
@@ -786,6 +804,8 @@ export async function renameDocument(opts: {
     action: "renamed",
     metadata: { from: existing.title, to: title },
   });
+  revalidateTag(PUBLIC_DOCUMENTS_TAG, { expire: 0 });
+  invalidatePublicDocument(existing.publicSlug);
   return updated;
 }
 
@@ -1039,6 +1059,7 @@ export async function trashDocument(opts: {
     .where(and(inArray(documents.id, ids), isNull(documents.archivedAt)));
 
   if (result.doc.publishedAt && result.doc.publicSlug) {
+    invalidatePublicDocument(result.doc.publicSlug);
     revalidatePath(`/p/${result.doc.publicSlug}`);
   }
   await recordDocumentActivity({
@@ -1098,6 +1119,9 @@ export async function restoreDocument(opts: {
     userId: opts.userId,
     action: "restored",
   });
+  if (result.doc.publishedAt) {
+    invalidatePublicDocument(result.doc.publicSlug);
+  }
   logger.info("document.restore", { documentId: result.doc.id });
   return result.doc;
 }
@@ -1226,6 +1250,10 @@ export async function restoreDocumentVersion(opts: {
     action: "version_restored",
     metadata: { version: version.version },
   });
+  if (existing.publishedAt) {
+    revalidateTag(PUBLIC_DOCUMENTS_TAG, { expire: 0 });
+    invalidatePublicDocument(existing.publicSlug);
+  }
   logger.info("document.restore_version", {
     documentId: existing.id,
     versionId: opts.versionId,
@@ -1266,8 +1294,12 @@ export async function publishDocument(opts: {
     .where(eq(documents.id, existing.id))
     .returning();
 
-  if (previousSlug) revalidatePath(`/p/${previousSlug}`);
+  if (previousSlug) {
+    invalidatePublicDocument(previousSlug);
+    revalidatePath(`/p/${previousSlug}`);
+  }
   if (updated.publicSlug && updated.publicSlug !== previousSlug) {
+    invalidatePublicDocument(updated.publicSlug);
     revalidatePath(`/p/${updated.publicSlug}`);
   }
 
@@ -1285,6 +1317,10 @@ export async function publishDocument(opts: {
 }
 
 export async function getPublicDocument(slug: string) {
+  "use cache";
+  cacheLife("max");
+  cacheTag(PUBLIC_DOCUMENTS_TAG, publicDocumentTag(slug));
+
   const db = getDb();
   const [row] = await db
     .select({
