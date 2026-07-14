@@ -32,6 +32,7 @@ import { extractPlainText } from "./plain-text";
 import { normalizeDocumentBlocks } from "./blocks";
 import { slugify } from "@/lib/utils";
 import { logger } from "@/lib/logger";
+import { syncDocumentSearchBlocks } from "@/lib/search/document-blocks";
 
 /* -------------------------------------------------------------------------- */
 /* Access                                                                      */
@@ -437,6 +438,12 @@ export async function createDocument(opts: {
     })
     .returning();
 
+  await syncDocumentSearchBlocks({
+    db,
+    documentId: doc.id,
+    title: doc.title,
+    contentJson: doc.contentJson,
+  });
   await recordDocumentActivity({
     documentId: doc.id,
     userId: opts.userId,
@@ -476,6 +483,12 @@ export async function duplicateDocument(opts: {
     })
     .where(eq(documents.id, copy.id))
     .returning();
+  await syncDocumentSearchBlocks({
+    db,
+    documentId: updated.id,
+    title: updated.title,
+    contentJson: updated.contentJson,
+  });
   revalidatePath(`/app/${source.workspaceId}`, "layout");
   return updated;
 }
@@ -602,6 +615,12 @@ export async function saveDocumentContent(opts: {
     .where(eq(documents.id, existing.id))
     .returning();
 
+  await syncDocumentSearchBlocks({
+    db,
+    documentId: updated.id,
+    title: updated.title,
+    contentJson: updated.contentJson,
+  });
   if (title !== existing.title) {
     await recomputeBreadcrumbs(db, existing.id);
     // Refresh the sidebar tree (and any sub-page links) that show this title.
@@ -664,6 +683,12 @@ export async function renameDocument(opts: {
     .set({ title, updatedById: opts.userId, updatedAt: new Date() })
     .where(eq(documents.id, existing.id))
     .returning();
+  await syncDocumentSearchBlocks({
+    db,
+    documentId: updated.id,
+    title: updated.title,
+    contentJson: updated.contentJson,
+  });
   await recomputeBreadcrumbs(db, existing.id);
   await recordDocumentActivity({
     documentId: existing.id,
@@ -1078,6 +1103,12 @@ export async function restoreDocumentVersion(opts: {
     .where(eq(documents.id, existing.id))
     .returning();
 
+  await syncDocumentSearchBlocks({
+    db,
+    documentId: updated.id,
+    title: updated.title,
+    contentJson: updated.contentJson,
+  });
   await recomputeBreadcrumbs(db, existing.id);
   await recordDocumentActivity({
     documentId: existing.id,
