@@ -243,6 +243,85 @@ export async function listWorkspaceDocumentTree(
   return roots;
 }
 
+/**
+ * Load every authorized workspace tree in one SQL request. The workspace IDs
+ * come from the caller's workspace summary, but the membership join keeps this
+ * helper safe if it is reused with untrusted IDs.
+ */
+export async function listWorkspaceDocumentTrees(
+  userId: string,
+  workspaceIds: string[],
+): Promise<Array<{ workspaceId: string; nodes: DocumentTreeNode[] }>> {
+  if (workspaceIds.length === 0) return [];
+  const db = getDb();
+  const rows = await measureServerOperation(
+    "sidebar.document_trees",
+    () =>
+      db
+        .select({
+          workspaceId: documents.workspaceId,
+          id: documents.id,
+          title: documents.title,
+          parentId: documents.parentId,
+          visibility: documents.visibility,
+          icon: documents.icon,
+          docType: documents.docType,
+          lockedAt: documents.lockedAt,
+          updatedAt: documents.updatedAt,
+          createdById: documents.createdById,
+        })
+        .from(documents)
+        .innerJoin(
+          workspaceMembers,
+          and(
+            eq(workspaceMembers.workspaceId, documents.workspaceId),
+            eq(workspaceMembers.userId, userId),
+          ),
+        )
+        .where(
+          and(
+            inArray(documents.workspaceId, workspaceIds),
+            isNull(documents.archivedAt),
+            visibleTo(userId),
+          ),
+        )
+        .orderBy(asc(documents.workspaceId), asc(documents.title)),
+    { workspaceCount: workspaceIds.length },
+  );
+
+  const byWorkspace = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const list = byWorkspace.get(row.workspaceId) ?? [];
+    list.push(row);
+    byWorkspace.set(row.workspaceId, list);
+  }
+
+  return workspaceIds.map((workspaceId) => {
+    const nodes = new Map<string, DocumentTreeNode>();
+    for (const row of byWorkspace.get(workspaceId) ?? []) {
+      nodes.set(row.id, {
+        id: row.id,
+        title: row.title,
+        parentId: row.parentId,
+        icon: row.icon,
+        visibility: row.visibility,
+        docType: row.docType,
+        locked: row.lockedAt !== null,
+        updatedAt: row.updatedAt,
+        createdById: row.createdById,
+        children: [],
+      });
+    }
+    const roots: DocumentTreeNode[] = [];
+    for (const node of nodes.values()) {
+      const parent = node.parentId ? nodes.get(node.parentId) : undefined;
+      if (parent) parent.children.push(node);
+      else roots.push(node);
+    }
+    return { workspaceId, nodes: roots };
+  });
+}
+
 export async function getRecentDocuments(userId: string, workspaceId: string) {
   await requireMembership(userId, workspaceId, "guest");
   const db = getDb();
@@ -381,6 +460,15 @@ export async function listAllFavoriteDocuments(userId: string) {
       ),
     )
     .orderBy(desc(favorites.createdAt));
+}
+
+/** Sidebar favorites and IDs from one query instead of two identical reads. */
+export async function listSidebarFavorites(userId: string) {
+  const documents = await listAllFavoriteDocuments(userId);
+  return {
+    documents,
+    ids: documents.map((document) => document.id),
+  };
 }
 
 /** Every favorited document id for the user, across all workspaces. */
@@ -750,59 +838,66 @@ export async function setDocumentLock(opts: {
 
 /** Recompute breadcrumb paths for a document and all of its descendants. */
 async function recomputeBreadcrumbs(db: Database, rootId: string) {
-  const [root] = await db
-    .select({ id: documents.id, workspaceId: documents.workspaceId })
-    .from(documents)
-    .where(eq(documents.id, rootId))
-    .limit(1);
-  if (!root) return;
+  await db.execute(sql`
+    WITH RECURSIVE ancestors AS (
+      SELECT
+        id,
+        parent_id,
+        title,
+        title::text AS path,
+        ARRAY[id]::text[] AS visited,
+        0 AS depth
+      FROM documents
+      WHERE id = ${rootId}
 
-  const rows = await db
-    .select({
-      id: documents.id,
-      parentId: documents.parentId,
-      title: documents.title,
-      breadcrumbPath: documents.breadcrumbPath,
-    })
-    .from(documents)
-    .where(eq(documents.workspaceId, root.workspaceId));
+      UNION ALL
 
-  const byId = new Map(rows.map((r) => [r.id, r]));
-  const pathFor = (id: string, seen = new Set<string>()): string => {
-    const row = byId.get(id);
-    if (!row || seen.has(id)) return "";
-    seen.add(id);
-    if (!row.parentId) return row.title;
-    const parentPath = pathFor(row.parentId, seen);
-    return parentPath ? `${parentPath} / ${row.title}` : row.title;
-  };
+      SELECT
+        parent.id,
+        parent.parent_id,
+        parent.title,
+        (parent.title || ' / ' || child.path)::text AS path,
+        child.visited || parent.id,
+        child.depth + 1
+      FROM documents parent
+      INNER JOIN ancestors child ON parent.id = child.parent_id
+      WHERE child.depth < 100
+        AND NOT parent.id = ANY(child.visited)
+    ),
+    root_path AS (
+      SELECT path
+      FROM ancestors
+      ORDER BY depth DESC
+      LIMIT 1
+    ),
+    subtree AS (
+      SELECT
+        root.id,
+        root_path.path,
+        ARRAY[root.id]::text[] AS visited,
+        0 AS depth
+      FROM documents root
+      CROSS JOIN root_path
+      WHERE root.id = ${rootId}
 
-  // Collect the subtree rooted at rootId.
-  const children = new Map<string, string[]>();
-  for (const row of rows) {
-    if (!row.parentId) continue;
-    const list = children.get(row.parentId) ?? [];
-    list.push(row.id);
-    children.set(row.parentId, list);
-  }
-  const subtree: string[] = [];
-  const queue = [rootId];
-  while (queue.length) {
-    const id = queue.shift()!;
-    subtree.push(id);
-    queue.push(...(children.get(id) ?? []));
-  }
+      UNION ALL
 
-  for (const id of subtree) {
-    const next = pathFor(id);
-    const row = byId.get(id);
-    if (row && next && next !== row.breadcrumbPath) {
-      await db
-        .update(documents)
-        .set({ breadcrumbPath: next })
-        .where(eq(documents.id, id));
-    }
-  }
+      SELECT
+        child.id,
+        (parent.path || ' / ' || child.title)::text AS path,
+        parent.visited || child.id,
+        parent.depth + 1
+      FROM documents child
+      INNER JOIN subtree parent ON child.parent_id = parent.id
+      WHERE parent.depth < 100
+        AND NOT child.id = ANY(parent.visited)
+    )
+    UPDATE documents target
+    SET breadcrumb_path = subtree.path
+    FROM subtree
+    WHERE target.id = subtree.id
+      AND target.breadcrumb_path IS DISTINCT FROM subtree.path
+  `);
 }
 
 export async function moveDocument(opts: {
@@ -815,32 +910,54 @@ export async function moveDocument(opts: {
 
   if (opts.newParentId) {
     if (opts.newParentId === existing.id) throw new Error("INVALID_PARENT");
-    const [parent] = await db
-      .select({
-        id: documents.id,
-        workspaceId: documents.workspaceId,
-        parentId: documents.parentId,
-        archivedAt: documents.archivedAt,
-      })
-      .from(documents)
-      .where(eq(documents.id, opts.newParentId))
-      .limit(1);
-    if (!parent || parent.workspaceId !== existing.workspaceId || parent.archivedAt) {
+    const hierarchy = await db.execute(sql`
+      WITH RECURSIVE ancestors AS (
+        SELECT
+          id,
+          parent_id,
+          workspace_id,
+          archived_at,
+          ARRAY[id]::text[] AS visited,
+          0 AS depth
+        FROM documents
+        WHERE id = ${opts.newParentId}
+
+        UNION ALL
+
+        SELECT
+          parent.id,
+          parent.parent_id,
+          parent.workspace_id,
+          parent.archived_at,
+          child.visited || parent.id,
+          child.depth + 1
+        FROM documents parent
+        INNER JOIN ancestors child ON parent.id = child.parent_id
+        WHERE child.depth < 100
+          AND NOT parent.id = ANY(child.visited)
+      )
+      SELECT
+        root.workspace_id,
+        root.archived_at,
+        EXISTS (
+          SELECT 1 FROM ancestors WHERE id = ${existing.id}
+        ) AS creates_cycle
+      FROM ancestors root
+      WHERE root.id = ${opts.newParentId}
+      LIMIT 1
+    `);
+    const [parent] = hierarchy.rows as Array<{
+      workspace_id: string;
+      archived_at: Date | null;
+      creates_cycle: boolean;
+    }>;
+    if (
+      !parent ||
+      parent.workspace_id !== existing.workspaceId ||
+      parent.archived_at ||
+      parent.creates_cycle
+    ) {
       throw new Error("INVALID_PARENT");
-    }
-    // Prevent cycles: walk up from the new parent.
-    let cursor: string | null = parent.parentId;
-    const guard = new Set<string>([parent.id]);
-    while (cursor) {
-      if (cursor === existing.id) throw new Error("INVALID_PARENT");
-      if (guard.has(cursor)) break;
-      guard.add(cursor);
-      const [row] = await db
-        .select({ parentId: documents.parentId })
-        .from(documents)
-        .where(eq(documents.id, cursor))
-        .limit(1);
-      cursor = row?.parentId ?? null;
     }
   }
 

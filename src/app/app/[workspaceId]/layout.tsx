@@ -2,9 +2,8 @@ import { Suspense } from "react";
 import { requireVerifiedSession, platformRoleOf } from "@/lib/session";
 import {
   listUserWorkspaces,
-  listWorkspaceDocumentTree,
-  listAllFavoriteDocuments,
-  listFavoriteDocumentIds,
+  listWorkspaceDocumentTrees,
+  listSidebarFavorites,
   listSharedWithMe,
 } from "@/lib/documents/service";
 import { AppShell } from "@/components/layout/app-shell";
@@ -56,15 +55,12 @@ async function WorkspaceChrome({
   }
 
   // Notion-style sidebar: trees for every workspace (Private + Teamspaces).
-  const [trees, favoriteDocs, favoriteIds, sharedDocs] = await Promise.all([
-    Promise.all(
-      workspaces.map(async (ws) => ({
-        workspaceId: ws.id,
-        nodes: await listWorkspaceDocumentTree(session.user.id, ws.id),
-      })),
+  const [trees, favorites, sharedDocs] = await Promise.all([
+    listWorkspaceDocumentTrees(
+      session.user.id,
+      workspaces.map((item) => item.id),
     ),
-    listAllFavoriteDocuments(session.user.id),
-    listFavoriteDocumentIds(session.user.id),
+    listSidebarFavorites(session.user.id),
     listSharedWithMe(session.user.id),
   ]);
 
@@ -85,12 +81,12 @@ async function WorkspaceChrome({
         role: w.role,
       }))}
       trees={trees}
-      favorites={favoriteDocs.map((f) => ({
+      favorites={favorites.documents.map((f) => ({
         id: f.id,
         title: f.title,
         workspaceId: f.workspaceId,
       }))}
-      favoriteIds={favoriteIds}
+      favoriteIds={favorites.ids}
       shared={sharedDocs.map((s) => ({
         id: s.id,
         title: s.title,

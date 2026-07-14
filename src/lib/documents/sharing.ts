@@ -81,52 +81,51 @@ export async function listDocumentSharing(
   const { doc } = result;
 
   const db = getDb();
-  const [workspace] = await db
-    .select({ name: workspaces.name, isPersonal: workspaces.isPersonal })
-    .from(workspaces)
-    .where(eq(workspaces.id, doc.workspaceId))
-    .limit(1);
-
-  const [creator] = await db
-    .select({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      image: user.image,
-    })
-    .from(user)
-    .where(eq(user.id, doc.createdById))
-    .limit(1);
-
-  const grants = await db
-    .select({
-      userId: user.id,
-      name: user.name,
-      email: user.email,
-      image: user.image,
-      level: documentPermissions.level,
-      createdAt: documentPermissions.createdAt,
-    })
-    .from(documentPermissions)
-    .innerJoin(user, eq(user.id, documentPermissions.userId))
-    .where(eq(documentPermissions.documentId, doc.id))
-    .orderBy(documentPermissions.createdAt);
-
-  const pending = await db
-    .select({
-      invitationId: documentInvitations.id,
-      email: documentInvitations.email,
-      level: documentInvitations.level,
-    })
-    .from(documentInvitations)
-    .where(
-      and(
-        eq(documentInvitations.documentId, doc.id),
-        eq(documentInvitations.status, "pending"),
-        gt(documentInvitations.expiresAt, new Date()),
-      ),
-    )
-    .orderBy(documentInvitations.createdAt);
+  const [[workspace], [creator], grants, pending] = await Promise.all([
+    db
+      .select({ name: workspaces.name, isPersonal: workspaces.isPersonal })
+      .from(workspaces)
+      .where(eq(workspaces.id, doc.workspaceId))
+      .limit(1),
+    db
+      .select({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        image: user.image,
+      })
+      .from(user)
+      .where(eq(user.id, doc.createdById))
+      .limit(1),
+    db
+      .select({
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+        image: user.image,
+        level: documentPermissions.level,
+        createdAt: documentPermissions.createdAt,
+      })
+      .from(documentPermissions)
+      .innerJoin(user, eq(user.id, documentPermissions.userId))
+      .where(eq(documentPermissions.documentId, doc.id))
+      .orderBy(documentPermissions.createdAt),
+    db
+      .select({
+        invitationId: documentInvitations.id,
+        email: documentInvitations.email,
+        level: documentInvitations.level,
+      })
+      .from(documentInvitations)
+      .where(
+        and(
+          eq(documentInvitations.documentId, doc.id),
+          eq(documentInvitations.status, "pending"),
+          gt(documentInvitations.expiresAt, new Date()),
+        ),
+      )
+      .orderBy(documentInvitations.createdAt),
+  ]);
 
   const people: SharePerson[] = [];
   if (creator) {
