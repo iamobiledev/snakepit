@@ -297,11 +297,16 @@ body {
   text-decoration: none;
 }
 
-/* Selected node outline (e.g. images) — not during block-handle drags. */
+/*
+ * Notion-style selected atom block (sub-page links, images):
+ * a blue rounded ring hugging the block with a faint blue wash.
+ * Not shown during block-handle drags.
+ */
 .ProseMirror-selectednode {
   outline: 2px solid var(--ring);
-  outline-offset: 2px;
-  border-radius: 4px;
+  outline-offset: -1px;
+  border-radius: 6px;
+  background-color: rgba(35, 131, 226, 0.06);
 }
 
 .ProseMirror.is-dragging-block .ProseMirror-selectednode {
@@ -349,6 +354,35 @@ body {
 .ProseMirror .is-block-hovered {
   border-radius: 4px;
   background-color: rgba(55, 53, 47, 0.04);
+}
+
+/*
+ * Notion-style selected block while the block ··· menu is open:
+ * a soft blue wash over the whole block (extends slightly past the text),
+ * with the native character-level selection hidden underneath it.
+ */
+.ProseMirror .is-block-selected {
+  position: relative;
+}
+
+.ProseMirror .is-block-selected::before {
+  content: "";
+  position: absolute;
+  inset: -0.15rem -0.25rem;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: 4px;
+  background-color: rgba(35, 131, 226, 0.14);
+}
+
+.ProseMirror .is-block-selected::selection,
+.ProseMirror .is-block-selected *::selection {
+  background: transparent;
+}
+
+/* The wash replaces the hover gray — never show both. */
+.ProseMirror .is-block-selected.is-block-hovered {
+  background-color: transparent;
 }
 
 /* Selection highlight while dragging a block range. */

@@ -55,6 +55,7 @@ import {
   SUBPAGE_REQUEST_EVENT,
 } from "./slash-command";
 import { Subpage } from "./subpage-node";
+import { BlockSelectionHighlight } from "./block-selection";
 import { NotionCodeBlock } from "./code-block";
 import { BlockHandle } from "./block-handle";
 import {
@@ -155,6 +156,7 @@ export function DocumentEditor({
       TaskItem.configure({ nested: true }),
       Subpage,
       SlashCommand,
+      BlockSelectionHighlight,
     ],
     content: initialContent,
     editable: !readOnly,
