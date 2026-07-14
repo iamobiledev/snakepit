@@ -174,6 +174,10 @@ function visibleTo(userId: string) {
 /* Listing                                                                     */
 /* -------------------------------------------------------------------------- */
 
+export const MAX_WORKSPACE_DOCUMENTS = 500;
+const MAX_SIDEBAR_FAVORITES = 100;
+const MAX_TRASH_DOCUMENTS = 200;
+
 export type { DocumentTreeNode } from "./types";
 import type { DocumentTreeNode } from "./types";
 
@@ -205,7 +209,8 @@ export async function listWorkspaceDocuments(
         visibleTo(userId),
       ),
     )
-    .orderBy(asc(documents.title));
+    .orderBy(asc(documents.title))
+    .limit(MAX_WORKSPACE_DOCUMENTS);
 }
 
 /** Flat list assembled into a tree for the sidebar. */
@@ -430,7 +435,8 @@ export async function listFavoriteDocuments(
         visibleTo(userId),
       ),
     )
-    .orderBy(desc(favorites.createdAt));
+    .orderBy(desc(favorites.createdAt))
+    .limit(MAX_SIDEBAR_FAVORITES);
 }
 
 /** Favorites across every workspace the user is still a member of. */
@@ -459,7 +465,8 @@ export async function listAllFavoriteDocuments(userId: string) {
         visibleTo(userId),
       ),
     )
-    .orderBy(desc(favorites.createdAt));
+    .orderBy(desc(favorites.createdAt))
+    .limit(MAX_SIDEBAR_FAVORITES);
 }
 
 /** Sidebar favorites and IDs from one query instead of two identical reads. */
@@ -1118,7 +1125,8 @@ export async function listTrashedDocuments(
         visibleTo(userId),
       ),
     )
-    .orderBy(desc(documents.archivedAt));
+    .orderBy(desc(documents.archivedAt))
+    .limit(MAX_TRASH_DOCUMENTS);
 }
 
 /* -------------------------------------------------------------------------- */

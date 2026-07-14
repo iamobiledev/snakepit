@@ -88,7 +88,6 @@ export function DocHeader({
             ? "Wiki locked — only admins can edit"
             : "Wiki unlocked — editors can edit again",
         );
-        router.refresh();
       } else {
         toast.error(result.error);
       }
@@ -122,7 +121,6 @@ export function DocHeader({
           },
         });
         router.push(`/app/${doc.workspaceId}`);
-        router.refresh();
       } else {
         toast.error(result.error);
       }

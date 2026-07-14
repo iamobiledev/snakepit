@@ -33,9 +33,18 @@ const DATE_FILTERS = [
  * Global Cmd/Ctrl+K search palette with owner/date filters, highlighted
  * snippets, and keyboard navigation.
  */
-export function CommandPalette({ workspaceId }: { workspaceId?: string }) {
+export function CommandPalette({
+  workspaceId,
+  open: controlledOpen,
+  onOpenChange,
+}: {
+  workspaceId?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [loading, setLoading] = useState(false);
@@ -52,34 +61,20 @@ export function CommandPalette({ workspaceId }: { workspaceId?: string }) {
   const listRef = useRef<HTMLUListElement>(null);
   const requestSeq = useRef(0);
 
-  const handleOpenChange = useCallback((next: boolean) => {
-    setOpen(next);
-    if (!next) {
-      setQuery("");
-      setHits([]);
-      setSearched(false);
-      setError(null);
-      setSelectedIndex(0);
-    }
-  }, []);
-
-  // Open on Cmd/Ctrl+K or the custom event fired by the sidebar button.
-  // (Escape/overlay close through Radix, which resets via handleOpenChange.)
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setOpen(true);
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      setInternalOpen(next);
+      onOpenChange?.(next);
+      if (!next) {
+        setQuery("");
+        setHits([]);
+        setSearched(false);
+        setError(null);
+        setSelectedIndex(0);
       }
-    };
-    const onOpen = () => setOpen(true);
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("docloom:open-search", onOpen);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("docloom:open-search", onOpen);
-    };
-  }, []);
+    },
+    [onOpenChange],
+  );
 
   // Load workspace members once for the owner filter.
   useEffect(() => {

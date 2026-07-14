@@ -19,7 +19,9 @@ import {
   getDocumentForUser,
   setDocumentLock,
   duplicateDocument,
+  listWorkspaceDocumentTree,
 } from "@/lib/documents/service";
+import type { DocumentTreeNode } from "@/lib/documents/types";
 import { listDocumentActivity } from "@/lib/documents/activity";
 import {
   listDocumentSharing,
@@ -259,6 +261,20 @@ export async function actionCreateDocument(formData: FormData) {
   });
   revalidatePath(`/app/${workspaceId}`);
   return doc;
+}
+
+/** Load a teamspace tree only when the user expands it in the sidebar. */
+export async function actionListWorkspaceTree(input: {
+  workspaceId: string;
+}): Promise<ActionResult<DocumentTreeNode[]>> {
+  const session = await requireVerifiedSession();
+  return run(async () => {
+    const parsed = z.object({ workspaceId: z.string().min(1) }).parse(input);
+    return listWorkspaceDocumentTree(
+      session.user.id,
+      parsed.workspaceId,
+    );
+  });
 }
 
 export async function actionDuplicateDocument(input: {

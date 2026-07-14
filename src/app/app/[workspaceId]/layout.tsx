@@ -55,10 +55,16 @@ async function WorkspaceChrome({
   }
 
   // Notion-style sidebar: trees for every workspace (Private + Teamspaces).
+  const personalWorkspace = workspaces.find((item) => item.isPersonal);
+  const initialTreeWorkspaceIds = [
+    personalWorkspace?.id,
+    workspace.id,
+  ].filter((id, index, ids): id is string => Boolean(id) && ids.indexOf(id) === index);
+
   const [trees, favorites, sharedDocs] = await Promise.all([
     listWorkspaceDocumentTrees(
       session.user.id,
-      workspaces.map((item) => item.id),
+      initialTreeWorkspaceIds,
     ),
     listSidebarFavorites(session.user.id),
     listSharedWithMe(session.user.id),
