@@ -127,6 +127,54 @@ export async function sendAccessRequestEmail(opts: {
   });
 }
 
+const LEVEL_PHRASE: Record<string, string> = {
+  full_access: "full access",
+  edit: "edit access",
+  view: "view access",
+};
+
+/** An existing user was given direct access to a page. */
+export async function sendDocumentSharedEmail(opts: {
+  to: string;
+  recipientName: string;
+  sharerName: string;
+  documentTitle: string;
+  level: "full_access" | "edit" | "view";
+  documentUrl: string;
+}) {
+  const provider = getEmailProvider();
+  const levelPhrase = LEVEL_PHRASE[opts.level] ?? "access";
+  await provider.send({
+    to: opts.to,
+    subject: `${opts.sharerName} shared "${opts.documentTitle}" with you`,
+    html: `<p>Hi ${opts.recipientName},</p>
+<p><strong>${opts.sharerName}</strong> shared <strong>${opts.documentTitle}</strong> with you on ${brand.name} (${levelPhrase}).</p>
+<p><a href="${opts.documentUrl}">Open the page</a></p>
+<p>${brand.tagline}</p>`,
+    text: `${opts.sharerName} shared "${opts.documentTitle}" with you (${levelPhrase}): ${opts.documentUrl}`,
+  });
+}
+
+/** A page was shared with an email that has no account yet. */
+export async function sendDocumentInvitationEmail(opts: {
+  to: string;
+  sharerName: string;
+  documentTitle: string;
+  token: string;
+}) {
+  const url = `${getAppUrl()}/invitations/${opts.token}`;
+  const provider = getEmailProvider();
+  await provider.send({
+    to: opts.to,
+    subject: `${opts.sharerName} shared "${opts.documentTitle}" with you on ${brand.name}`,
+    html: `<p><strong>${opts.sharerName}</strong> shared <strong>${opts.documentTitle}</strong> with you on ${brand.name}.</p>
+<p>Create a free account with this email address to open it:</p>
+<p><a href="${url}">Open the invitation</a></p>
+<p>${brand.tagline}</p>`,
+    text: `${opts.sharerName} shared "${opts.documentTitle}" with you. Open the invitation: ${url}`,
+  });
+}
+
 export async function sendWorkspaceInvitationEmail(opts: {
   to: string;
   workspaceName: string;

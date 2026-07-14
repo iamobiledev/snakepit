@@ -54,6 +54,8 @@ function activitySentence(entry: ActivityEntry): string {
     charDelta?: number;
     version?: number;
     docType?: string;
+    emails?: string[];
+    access?: string;
   };
   switch (entry.action) {
     case "created":
@@ -90,6 +92,16 @@ function activitySentence(entry: ActivityEntry): string {
       return "locked this wiki";
     case "unlocked":
       return "unlocked this wiki";
+    case "shared":
+      return Array.isArray(meta.emails) && meta.emails.length > 0
+        ? `shared this page with ${meta.emails.join(", ")}`
+        : "shared this page";
+    case "unshared":
+      return "removed someone's access to this page";
+    case "general_access_changed":
+      return meta.access === "invited"
+        ? "restricted this page to invited people"
+        : "opened this page to everyone in the workspace";
     default:
       return entry.action;
   }

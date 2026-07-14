@@ -7,6 +7,7 @@ import {
   getDb,
   documents,
   documentVersions,
+  documentPermissions,
   favorites,
   recentlyViewed,
   workspaces,
@@ -22,6 +23,7 @@ import {
   canEdit,
   canView,
   type DocumentAccess,
+  type DocumentPermissionLevel,
   type PlatformRole,
 } from "./access";
 import { recordDocumentActivity } from "./activity";
@@ -51,6 +53,25 @@ async function getPlatformRole(userId: string): Promise<PlatformRole> {
   return row?.role === "admin" ? "admin" : "developer";
 }
 
+/** The user's direct share level on a document, if any. */
+export async function getDirectPermission(
+  userId: string,
+  documentId: string,
+): Promise<DocumentPermissionLevel | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({ level: documentPermissions.level })
+    .from(documentPermissions)
+    .where(
+      and(
+        eq(documentPermissions.userId, userId),
+        eq(documentPermissions.documentId, documentId),
+      ),
+    )
+    .limit(1);
+  return row?.level ?? null;
+}
+
 /**
  * Load a document and resolve the caller's access level.
  * Returns null when the document does not exist. Callers decide how to
@@ -68,14 +89,16 @@ export async function getDocumentWithAccess(
     .limit(1);
   if (!doc) return null;
 
-  const [membership, platformRole] = await Promise.all([
+  const [membership, platformRole, directPermission] = await Promise.all([
     getMembership(userId, doc.workspaceId),
     getPlatformRole(userId),
+    getDirectPermission(userId, doc.id),
   ]);
   const access = computeDocumentAccess({
     visibility: doc.visibility,
     isCreator: doc.createdById === userId,
     membershipRole: membership?.role ?? null,
+    directPermission,
     archived: doc.archivedAt !== null,
     docType: doc.docType,
     locked: doc.lockedAt !== null,
@@ -105,9 +128,20 @@ async function requireEditableDocument(
   return result.doc;
 }
 
-/** SQL fragment: exclude private docs the user did not create (defensive). */
+/**
+ * SQL fragment: exclude "Only people invited" (private) docs unless the user
+ * created them or holds a direct share. Mirror of computeDocumentAccess —
+ * keep in sync.
+ */
 function visibleTo(userId: string) {
-  return sql`(${documents.visibility} <> 'private' OR ${documents.createdById} = ${userId})`;
+  return sql`(
+    ${documents.visibility} <> 'private'
+    OR ${documents.createdById} = ${userId}
+    OR EXISTS (
+      SELECT 1 FROM document_permissions dp
+      WHERE dp.document_id = ${documents.id} AND dp.user_id = ${userId}
+    )
+  )`;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -130,6 +164,7 @@ export async function listWorkspaceDocuments(
       parentId: documents.parentId,
       visibility: documents.visibility,
       publicSlug: documents.publicSlug,
+      publishedAt: documents.publishedAt,
       icon: documents.icon,
       docType: documents.docType,
       lockedAt: documents.lockedAt,
@@ -583,7 +618,7 @@ export async function saveDocumentContent(opts: {
     });
   }
 
-  if (existing.visibility === "public" && existing.publicSlug) {
+  if (existing.publishedAt && existing.publicSlug) {
     revalidatePath(`/p/${existing.publicSlug}`);
   }
 
@@ -845,7 +880,7 @@ export async function trashDocument(opts: {
   if (!result) throw new Error("NOT_FOUND");
   // Trashing requires edit rights on the live document.
   if (result.doc.archivedAt) return result.doc;
-  if (result.access !== "editor") throw new Error("FORBIDDEN");
+  if (!canEdit(result.access)) throw new Error("FORBIDDEN");
 
   const db = getDb();
   const ids = await getSubtreeIds(db, result.doc.id);
@@ -854,7 +889,7 @@ export async function trashDocument(opts: {
     .set({ archivedAt: new Date(), updatedById: opts.userId })
     .where(and(inArray(documents.id, ids), isNull(documents.archivedAt)));
 
-  if (result.doc.visibility === "public" && result.doc.publicSlug) {
+  if (result.doc.publishedAt && result.doc.publicSlug) {
     revalidatePath(`/p/${result.doc.publicSlug}`);
   }
   await recordDocumentActivity({
@@ -1068,10 +1103,11 @@ export async function publishDocument(opts: {
 
   const previousSlug = existing.publicSlug;
 
+  // Publishing is orthogonal to in-app General access (visibility):
+  // a page can be "Only people invited" and still be published to the web.
   const [updated] = await db
     .update(documents)
     .set({
-      visibility: opts.publish ? "public" : "workspace",
       publicSlug: opts.publish ? publicSlug : existing.publicSlug,
       publishedAt: opts.publish ? new Date() : null,
       updatedById: opts.userId,
@@ -1121,13 +1157,55 @@ export async function getPublicDocument(slug: string) {
     .where(
       and(
         eq(documents.publicSlug, slug),
-        eq(documents.visibility, "public"),
+        isNotNull(documents.publishedAt),
         isNull(documents.archivedAt),
       ),
     )
     .limit(1);
 
   return row ?? null;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Shared with me                                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Pages shared directly with the user (document_permissions) that are not
+ * already visible in their sidebar trees — i.e. pages in workspaces they are
+ * not a member of, plus "Only people invited" pages of other members.
+ * Powers the Notion-style "Shared" sidebar section.
+ */
+export async function listSharedWithMe(userId: string) {
+  const db = getDb();
+  return db
+    .select({
+      id: documents.id,
+      title: documents.title,
+      icon: documents.icon,
+      workspaceId: documents.workspaceId,
+      level: documentPermissions.level,
+      updatedAt: documents.updatedAt,
+    })
+    .from(documentPermissions)
+    .innerJoin(documents, eq(documents.id, documentPermissions.documentId))
+    .leftJoin(
+      workspaceMembers,
+      and(
+        eq(workspaceMembers.workspaceId, documents.workspaceId),
+        eq(workspaceMembers.userId, userId),
+      ),
+    )
+    .where(
+      and(
+        eq(documentPermissions.userId, userId),
+        isNull(documents.archivedAt),
+        // Already in the tree when the user is a member and the page is
+        // workspace-visible — avoid duplicating those rows here.
+        sql`NOT (${workspaceMembers.id} IS NOT NULL AND ${documents.visibility} <> 'private')`,
+      ),
+    )
+    .orderBy(desc(documentPermissions.createdAt));
 }
 
 /* -------------------------------------------------------------------------- */

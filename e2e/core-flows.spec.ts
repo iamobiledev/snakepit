@@ -332,11 +332,13 @@ test.describe.serial("core flows", () => {
     await page.waitForURL(/\/docs\//);
   });
 
-  test("share dialog publishes to the web", async ({ page }) => {
+  test("share popover publishes to the web", async ({ page }) => {
     await signIn(page, DEMO_EMAIL);
     await page.goto(docUrl);
-    await page.getByRole("button", { name: "Share" }).click();
-    await expect(page.getByText("Who has access")).toBeVisible();
+    await page.getByRole("button", { name: /^Share/ }).click();
+    // Notion-style popover with Share | Publish tabs.
+    await expect(page.getByRole("tab", { name: "Share" })).toBeVisible();
+    await page.getByRole("tab", { name: "Publish" }).click();
     await page.getByRole("button", { name: "Publish", exact: true }).click();
     const publicInput = page.getByLabel("Public link");
     await expect(publicInput).toBeVisible({ timeout: 10_000 });

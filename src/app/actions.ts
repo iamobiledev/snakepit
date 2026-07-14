@@ -22,6 +22,17 @@ import {
 } from "@/lib/documents/service";
 import { listDocumentActivity } from "@/lib/documents/activity";
 import {
+  listDocumentSharing,
+  shareDocument,
+  updateDocumentPermission,
+  removeDocumentPermission,
+  revokeDocumentInvitation,
+  setGeneralAccess,
+  acceptDocumentInvitation,
+  type DocumentSharing,
+  type ShareOutcome,
+} from "@/lib/documents/sharing";
+import {
   createWorkspace,
   inviteToWorkspace,
   acceptInvitation,
@@ -61,6 +72,9 @@ const FRIENDLY_ERRORS: Record<string, string> = {
   EMAIL_MISMATCH: "This invitation was sent to a different email address.",
   ADMIN_ONLY: "Only platform admins can create workspaces.",
   NOT_A_WIKI: "Only wikis can be locked.",
+  CREATOR_PERMANENT: "The page creator always keeps full access.",
+  PERSONAL_INVITE_ONLY:
+    "Personal notebook pages are always invite-only — share them with specific people instead.",
 };
 
 function friendlyError(error: unknown): string {
@@ -501,6 +515,126 @@ export async function actionRestoreDocumentVersion(input: {
     revalidatePath(`/app/${doc.workspaceId}/docs/${doc.id}`);
     return undefined;
   });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Document sharing                                                            */
+/* -------------------------------------------------------------------------- */
+
+const shareLevelSchema = z.enum(["full_access", "edit", "view"]);
+
+export async function actionGetDocumentSharing(input: {
+  documentId: string;
+}): Promise<ActionResult<DocumentSharing>> {
+  const session = await requireVerifiedSession();
+  return run(async () => {
+    const parsed = z.object({ documentId: z.string().min(1) }).parse(input);
+    return listDocumentSharing(session.user.id, parsed.documentId);
+  });
+}
+
+export async function actionShareDocument(input: {
+  documentId: string;
+  emails: string[];
+  level: "full_access" | "edit" | "view";
+}): Promise<ActionResult<Array<{ email: string; outcome: ShareOutcome }>>> {
+  const session = await requireVerifiedSession();
+  return run(async () => {
+    const parsed = z
+      .object({
+        documentId: z.string().min(1),
+        emails: z
+          .array(z.string().email("Enter valid email addresses").max(320))
+          .min(1, "Enter at least one email address")
+          .max(20, "You can invite up to 20 people at once"),
+        level: shareLevelSchema,
+      })
+      .parse(input);
+    const outcomes = await shareDocument({
+      userId: session.user.id,
+      ...parsed,
+    });
+    revalidatePath(`/app`, "layout");
+    return outcomes;
+  });
+}
+
+export async function actionUpdateDocumentPermission(input: {
+  documentId: string;
+  targetUserId: string;
+  level: "full_access" | "edit" | "view";
+}): Promise<ActionResult<undefined>> {
+  const session = await requireVerifiedSession();
+  return run(async () => {
+    const parsed = z
+      .object({
+        documentId: z.string().min(1),
+        targetUserId: z.string().min(1),
+        level: shareLevelSchema,
+      })
+      .parse(input);
+    await updateDocumentPermission({ userId: session.user.id, ...parsed });
+    revalidatePath(`/app`, "layout");
+    return undefined;
+  });
+}
+
+export async function actionRemoveDocumentPermission(input: {
+  documentId: string;
+  targetUserId: string;
+}): Promise<ActionResult<undefined>> {
+  const session = await requireVerifiedSession();
+  return run(async () => {
+    const parsed = z
+      .object({ documentId: z.string().min(1), targetUserId: z.string().min(1) })
+      .parse(input);
+    await removeDocumentPermission({ userId: session.user.id, ...parsed });
+    revalidatePath(`/app`, "layout");
+    return undefined;
+  });
+}
+
+export async function actionRevokeDocumentInvitation(input: {
+  documentId: string;
+  invitationId: string;
+}): Promise<ActionResult<undefined>> {
+  const session = await requireVerifiedSession();
+  return run(async () => {
+    const parsed = z
+      .object({ documentId: z.string().min(1), invitationId: z.string().min(1) })
+      .parse(input);
+    await revokeDocumentInvitation({ userId: session.user.id, ...parsed });
+    return undefined;
+  });
+}
+
+export async function actionSetGeneralAccess(input: {
+  documentId: string;
+  access: "invited" | "workspace";
+}): Promise<ActionResult<{ access: "invited" | "workspace" }>> {
+  const session = await requireVerifiedSession();
+  return run(async () => {
+    const parsed = z
+      .object({
+        documentId: z.string().min(1),
+        access: z.enum(["invited", "workspace"]),
+      })
+      .parse(input);
+    const doc = await setGeneralAccess({ userId: session.user.id, ...parsed });
+    revalidatePath(`/app/${doc.workspaceId}`, "layout");
+    return { access: parsed.access };
+  });
+}
+
+export async function actionAcceptDocumentInvitation(token: string) {
+  const session = await requireVerifiedSession();
+  const { documentId, workspaceId } = await acceptDocumentInvitation({
+    userId: session.user.id,
+    userEmail: session.user.email,
+    token,
+  });
+  revalidatePath("/app", "layout");
+  return { documentId, workspaceId };
 }
 
 /* -------------------------------------------------------------------------- */
