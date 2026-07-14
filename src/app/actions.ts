@@ -47,7 +47,6 @@ import {
   getWorkspaceById,
 } from "@/lib/workspaces/service";
 import { getSearchService } from "@/lib/search";
-import { uploadWorkspaceFile } from "@/lib/blob/upload";
 import { sendAccessRequestEmail } from "@/lib/email";
 import { getAppUrl } from "@/env/server";
 import { getDb, workspaceMembers, user as userTable } from "@/db";
@@ -735,7 +734,7 @@ export async function actionRequestAccess(input: {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Search & uploads                                                            */
+/* Search                                                                      */
 /* -------------------------------------------------------------------------- */
 
 export async function actionSearch(query: string, workspaceId?: string) {
@@ -747,25 +746,6 @@ export async function actionSearch(query: string, workspaceId?: string) {
     workspaceId,
     limit: 20,
   });
-}
-
-export async function actionUploadImage(formData: FormData) {
-  const session = await requireVerifiedSession();
-  const file = formData.get("file");
-  const workspaceId = String(formData.get("workspaceId") ?? "");
-  const documentId = String(formData.get("documentId") ?? "") || undefined;
-  if (!(file instanceof File)) throw new Error("file is required");
-  if (!workspaceId) throw new Error("workspaceId is required");
-
-  const record = await uploadWorkspaceFile({
-    file,
-    userId: session.user.id,
-    workspaceId,
-    documentId,
-    kind: "document-image",
-    access: "workspace",
-  });
-  return { url: record.blobUrl, id: record.id };
 }
 
 /* -------------------------------------------------------------------------- */

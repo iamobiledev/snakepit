@@ -22,6 +22,7 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { upload } from "@vercel/blob/client";
 import {
   AlertCircle,
   Bold,
@@ -81,6 +82,15 @@ type DocumentEditorProps = {
 };
 
 const AUTOSAVE_DEBOUNCE_MS = 1500;
+
+function safeUploadFilename(filename: string): string {
+  const sanitized = filename
+    .normalize("NFKC")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(-120);
+  return sanitized || "image";
+}
 
 export function DocumentEditor({
   documentId,
@@ -401,22 +411,36 @@ export function DocumentEditor({
   const uploadImage = useCallback(
     async (file: File) => {
       if (!editor) return;
-      const formData = new FormData();
-      formData.set("file", file);
-      formData.set("workspaceId", workspaceId);
-      formData.set("documentId", documentId);
-      formData.set("kind", "document-image");
       const uploading = toast.loading("Uploading image…");
       try {
-        const res = await fetch("/api/uploads", {
-          method: "POST",
-          body: formData,
+        const pathname =
+          `workspaces/${workspaceId}/document-image/` +
+          safeUploadFilename(file.name);
+        const blob = await upload(pathname, file, {
+          access: "private",
+          handleUploadUrl: "/api/uploads",
+          contentType: file.type,
+          multipart: file.size > 4 * 1024 * 1024,
+          clientPayload: JSON.stringify({
+            workspaceId,
+            documentId,
+            kind: "document-image",
+            access: "workspace",
+            originalFilename: file.name,
+            mimeType: file.type,
+            fileSize: file.size,
+          }),
+          onUploadProgress: ({ percentage }) => {
+            toast.loading(`Uploading image… ${Math.round(percentage)}%`, {
+              id: uploading,
+            });
+          },
         });
-        const data = (await res.json()) as { url?: string; error?: string };
-        if (!res.ok || !data.url) {
-          throw new Error(data.error ?? "Upload failed");
-        }
-        editor.chain().focus().setImage({ src: data.url, alt: file.name }).run();
+        editor
+          .chain()
+          .focus()
+          .setImage({ src: blob.url, alt: file.name })
+          .run();
         toast.success("Image added", { id: uploading });
       } catch (error) {
         toast.error(
