@@ -101,10 +101,8 @@ export type Auth = ReturnType<typeof createAuth>;
 
 const globalForAuth = globalThis as unknown as { __docloomAuth?: Auth };
 
+/** Construct Better Auth once per warm runtime, not once per session read. */
 export function getAuth(): Auth {
-  if (process.env.NODE_ENV === "production") {
-    return createAuth();
-  }
   if (!globalForAuth.__docloomAuth) {
     globalForAuth.__docloomAuth = createAuth();
   }

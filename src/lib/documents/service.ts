@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { and, asc, desc, eq, isNull, isNotNull, inArray, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { revalidatePath } from "next/cache";
@@ -16,7 +17,11 @@ import {
   type Document,
   type Database,
 } from "@/db";
-import { requireMembership, getMembership } from "@/lib/permissions";
+import {
+  requireMembership,
+  roleAtLeast,
+  type WorkspaceRole,
+} from "@/lib/permissions";
 import {
   computeDocumentAccess,
   canManageWikiLock,
@@ -31,6 +36,7 @@ import { shouldCreateVersion } from "./versioning";
 import { extractPlainText } from "./plain-text";
 import { slugify } from "@/lib/utils";
 import { logger } from "@/lib/logger";
+import { measureServerOperation } from "@/lib/performance";
 
 /* -------------------------------------------------------------------------- */
 /* Access                                                                      */
@@ -41,17 +47,9 @@ export type DocumentWithAccess = {
   access: DocumentAccess;
   /** Requesting user's platform role (admin | developer). */
   platformRole: PlatformRole;
+  /** Membership resolved by the same access query (null for direct shares). */
+  membershipRole: WorkspaceRole | null;
 };
-
-async function getPlatformRole(userId: string): Promise<PlatformRole> {
-  const db = getDb();
-  const [row] = await db
-    .select({ role: user.role })
-    .from(user)
-    .where(eq(user.id, userId))
-    .limit(1);
-  return row?.role === "admin" ? "admin" : "developer";
-}
 
 /** The user's direct share level on a document, if any. */
 export async function getDirectPermission(
@@ -77,35 +75,63 @@ export async function getDirectPermission(
  * Returns null when the document does not exist. Callers decide how to
  * render `access === "none"` (e.g. the request-access screen).
  */
-export async function getDocumentWithAccess(
+export const getDocumentWithAccess = cache(async function getDocumentWithAccess(
   userId: string,
   documentId: string,
 ): Promise<DocumentWithAccess | null> {
   const db = getDb();
-  const [doc] = await db
-    .select()
-    .from(documents)
-    .where(eq(documents.id, documentId))
-    .limit(1);
-  if (!doc) return null;
+  const [row] = await measureServerOperation(
+    "document.access",
+    () =>
+      db
+        .select({
+          doc: documents,
+          membershipRole: workspaceMembers.role,
+          platformRole: user.role,
+          directPermission: documentPermissions.level,
+        })
+        .from(documents)
+        .leftJoin(
+          workspaceMembers,
+          and(
+            eq(workspaceMembers.workspaceId, documents.workspaceId),
+            eq(workspaceMembers.userId, userId),
+          ),
+        )
+        .leftJoin(
+          documentPermissions,
+          and(
+            eq(documentPermissions.documentId, documents.id),
+            eq(documentPermissions.userId, userId),
+          ),
+        )
+        .leftJoin(user, eq(user.id, userId))
+        .where(eq(documents.id, documentId))
+        .limit(1),
+    { documentId },
+  );
+  if (!row) return null;
 
-  const [membership, platformRole, directPermission] = await Promise.all([
-    getMembership(userId, doc.workspaceId),
-    getPlatformRole(userId),
-    getDirectPermission(userId, doc.id),
-  ]);
+  const { doc } = row;
+  const platformRole: PlatformRole =
+    row.platformRole === "admin" ? "admin" : "developer";
   const access = computeDocumentAccess({
     visibility: doc.visibility,
     isCreator: doc.createdById === userId,
-    membershipRole: membership?.role ?? null,
-    directPermission,
+    membershipRole: row.membershipRole,
+    directPermission: row.directPermission,
     archived: doc.archivedAt !== null,
     docType: doc.docType,
     locked: doc.lockedAt !== null,
     platformRole,
   });
-  return { doc, access, platformRole };
-}
+  return {
+    doc,
+    access,
+    platformRole,
+    membershipRole: row.membershipRole,
+  };
+});
 
 /** Like getDocumentWithAccess but throws unless the user can view. */
 export async function getDocumentForUser(
@@ -686,10 +712,9 @@ export async function setDocumentLock(opts: {
   if (!canView(result.access)) throw new Error("FORBIDDEN");
   if (result.doc.docType !== "wiki") throw new Error("NOT_A_WIKI");
 
-  const membership = await getMembership(opts.userId, result.doc.workspaceId);
   if (
     !canManageWikiLock({
-      membershipRole: membership?.role ?? null,
+      membershipRole: result.membershipRole,
       platformRole: result.platformRole,
     })
   ) {
@@ -913,12 +938,12 @@ export async function restoreDocument(opts: {
   const result = await getDocumentWithAccess(opts.userId, opts.documentId);
   if (!result) throw new Error("NOT_FOUND");
   if (!canView(result.access)) throw new Error("FORBIDDEN");
-  const membership = await requireMembership(
-    opts.userId,
-    result.doc.workspaceId,
-    "member",
-  );
-  void membership;
+  if (
+    !result.membershipRole ||
+    !roleAtLeast(result.membershipRole, "member")
+  ) {
+    throw new Error("FORBIDDEN");
+  }
   if (!result.doc.archivedAt) return result.doc;
 
   const db = getDb();
@@ -1212,7 +1237,9 @@ export async function listSharedWithMe(userId: string) {
 /* Workspaces list                                                             */
 /* -------------------------------------------------------------------------- */
 
-export async function listUserWorkspaces(userId: string) {
+export const listUserWorkspaces = cache(async function listUserWorkspaces(
+  userId: string,
+) {
   const db = getDb();
   return db
     .select({
@@ -1232,4 +1259,4 @@ export async function listUserWorkspaces(userId: string) {
       ),
     )
     .orderBy(desc(workspaces.isPersonal), asc(workspaces.name));
-}
+});

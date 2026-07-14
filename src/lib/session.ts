@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getAuth } from "@/lib/auth";
@@ -19,7 +20,7 @@ export function platformRoleOf(sessionUser: unknown): PlatformRole {
   return role === "admin" ? "admin" : "developer";
 }
 
-export async function getSession() {
+export const getSession = cache(async function getSession() {
   // Read request data before constructing Better Auth. Better Auth initializes
   // internal random IDs, which Cache Components must never execute during
   // prerender before the request boundary is established.
@@ -28,7 +29,7 @@ export async function getSession() {
   return auth.api.getSession({
     headers: requestHeaders,
   });
-}
+});
 
 export async function requireSession() {
   const session = await getSession();
