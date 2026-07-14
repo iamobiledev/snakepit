@@ -23,6 +23,10 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { TURN_INTO_OPTIONS, getActiveTurnIntoLabel } from "./turn-into";
+import {
+  setBlockSelectionHighlight,
+  clearBlockSelectionHighlight,
+} from "./block-selection";
 
 type BlockHandleProps = {
   editor: Editor;
@@ -245,10 +249,12 @@ export function BlockHandle({ editor }: BlockHandleProps) {
   ]);
 
   const closeMenu = useCallback(() => {
+    // Drop the Notion-style blue selection wash.
+    if (!editor.isDestroyed) clearBlockSelectionHighlight(editor.view);
     setMenuOpen(false);
     setTurnIntoOpen(false);
     menuBlockRef.current = null;
-  }, []);
+  }, [editor]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -295,10 +301,21 @@ export function BlockHandle({ editor }: BlockHandleProps) {
     const block = hoveredRef.current;
     if (!block) return;
     menuBlockRef.current = block;
-    selectBlock(block);
+    // Notion-style selected look while the menu is open: text blocks get the
+    // blue wash (decoration — survives ProseMirror redraws); atom blocks
+    // (sub-pages, images) get the NodeSelection ring via
+    // .ProseMirror-selectednode. Text selection itself is only set when a
+    // menu action needs it (turn into), so no bubble toolbar pops up here.
+    if (block.node.isTextblock) {
+      setBlockSelectionHighlight(editor.view, block.pos);
+    } else {
+      // Focus first: the selected-node ring is only painted while the
+      // editor is focused (clicking the grip moved focus outside it).
+      editor.chain().focus().setNodeSelection(block.pos).run();
+    }
     setTurnIntoOpen(false);
     setMenuOpen(true);
-  }, [selectBlock]);
+  }, [editor]);
 
   const insertBlockBelow = useCallback(() => {
     const block = hoveredRef.current;
