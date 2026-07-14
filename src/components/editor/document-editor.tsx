@@ -57,11 +57,13 @@ import {
 import { Subpage } from "./subpage-node";
 import { NotionCodeBlock } from "./code-block";
 import { BlockHandle } from "./block-handle";
+import { BlockIdExtension } from "./block-id-extension";
 import {
   TURN_INTO_OPTIONS,
   getActiveTurnIntoLabel,
 } from "./turn-into";
 import { actionCreateDocument } from "@/app/actions";
+import { blockDomId, blockIdFromHash } from "@/lib/documents/blocks";
 
 export type SaveStatus = "saved" | "saving" | "dirty" | "error";
 
@@ -154,6 +156,7 @@ export function DocumentEditor({
       TaskList,
       TaskItem.configure({ nested: true }),
       Subpage,
+      BlockIdExtension.configure({ assignIds: !readOnly }),
       SlashCommand,
     ],
     content: initialContent,
@@ -274,6 +277,51 @@ export function DocumentEditor({
       editor.off("update", handler);
     };
   }, [editor, readOnly, scheduleSave]);
+
+  // Slack search results deep-link to the best matching paragraph. TipTap
+  // mounts asynchronously, so retry briefly before giving up on a stale or
+  // deleted block anchor.
+  useEffect(() => {
+    if (!editor) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let highlightTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const revealBlock = (attempt = 0) => {
+      const blockId = blockIdFromHash(window.location.hash);
+      if (!blockId) return;
+      const element = document.getElementById(blockDomId(blockId));
+      if (!element) {
+        if (attempt < 10) {
+          timer = setTimeout(() => revealBlock(attempt + 1), 50);
+        }
+        return;
+      }
+
+      const reducedMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+      element.scrollIntoView({
+        block: "center",
+        behavior: reducedMotion ? "auto" : "smooth",
+      });
+      element.classList.remove("is-deep-link-target");
+      // Restart the animation when navigating between anchors on one page.
+      void element.offsetWidth;
+      element.classList.add("is-deep-link-target");
+      highlightTimer = setTimeout(() => {
+        element.classList.remove("is-deep-link-target");
+      }, 2600);
+    };
+
+    const onHashChange = () => revealBlock();
+    timer = setTimeout(() => revealBlock(), 0);
+    window.addEventListener("hashchange", onHashChange);
+    return () => {
+      if (timer) clearTimeout(timer);
+      if (highlightTimer) clearTimeout(highlightTimer);
+      window.removeEventListener("hashchange", onHashChange);
+    };
+  }, [editor]);
 
   // Cmd/Ctrl+S saves immediately.
   useEffect(() => {
