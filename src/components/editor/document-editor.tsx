@@ -75,7 +75,7 @@ type DocumentEditorProps = {
   initialContent: Record<string, unknown>;
   onSave: (payload: {
     title: string;
-    contentJson: Record<string, unknown>;
+    contentJson: string;
   }) => Promise<SaveResult>;
   readOnly?: boolean;
 };
@@ -103,6 +103,7 @@ export function DocumentEditor({
   // Mutable save-machine state (only touched from handlers/effects).
   const titleRef = useRef(startingTitle);
   const statusRef = useRef<SaveStatus>("saved");
+  const lastSavedRef = useRef<string | null>(null);
 
   // The page can be renamed from outside (sidebar "···" menu). When the
   // server sends a new title and there are no unsaved local edits, adopt it
@@ -191,6 +192,15 @@ export function DocumentEditor({
     },
   });
 
+  // TipTap normalizes stored JSON while constructing the editor (for example,
+  // by adding default attrs). Fingerprint that canonical form once so pressing
+  // save before making an edit does not send a false-positive update.
+  useEffect(() => {
+    if (!editor || lastSavedRef.current !== null) return;
+    const currentTitle = titleRef.current.trim() || "Untitled";
+    lastSavedRef.current = `${currentTitle}\0${JSON.stringify(editor.getJSON())}`;
+  }, [editor]);
+
   // Stable handle to the latest save function (avoids self-reference,
   // which the React Compiler cannot memoize).
   const saveFnRef = useRef<((editor: Editor) => Promise<void>) | null>(null);
@@ -204,19 +214,23 @@ export function DocumentEditor({
       }
       savingRef.current = true;
       applyStatus("saving");
-      const payload = {
-        title: titleRef.current.trim() || "Untitled",
-        // Deep-clone to plain JSON: ProseMirror attrs objects have a null
-        // prototype, which React's server-action serializer refuses to send
-        // (it turns them into opaque temporary references).
-        contentJson: JSON.parse(
-          JSON.stringify(currentEditor.getJSON()),
-        ) as Record<string, unknown>,
-      };
+      const title = titleRef.current.trim() || "Untitled";
+      // A JSON string both normalizes ProseMirror's null-prototype attrs and
+      // avoids React Server Action recursively serializing the same large
+      // object a second time.
+      const contentJson = JSON.stringify(currentEditor.getJSON());
+      const signature = `${title}\0${contentJson}`;
+      if (signature === lastSavedRef.current) {
+        applyStatus("saved");
+        savingRef.current = false;
+        return;
+      }
+      const payload = { title, contentJson };
       let reschedule = false;
       try {
         const result = await onSave(payload);
         if (result.ok) {
+          lastSavedRef.current = signature;
           applyStatus(dirtyAgainRef.current ? "dirty" : "saved");
         } else {
           applyStatus("error");

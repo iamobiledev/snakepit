@@ -36,7 +36,7 @@ export function DocumentEditorClient({
   const onSave = useCallback(
     async (payload: {
       title: string;
-      contentJson: Record<string, unknown>;
+      contentJson: string;
     }): Promise<{ ok: true } | { ok: false; error: string }> => {
       const result = await actionSaveDocument({
         documentId,

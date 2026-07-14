@@ -1,6 +1,16 @@
 import "server-only";
 import { cache } from "react";
-import { and, asc, desc, eq, isNull, isNotNull, inArray, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  sql,
+} from "drizzle-orm";
 import { nanoid } from "nanoid";
 import {
   cacheLife,
@@ -395,12 +405,15 @@ export async function getRecentDocuments(userId: string, workspaceId: string) {
 
 export async function recordDocumentView(userId: string, documentId: string) {
   const db = getDb();
+  const now = new Date();
+  const updateBefore = new Date(now.getTime() - 5 * 60 * 1000);
   await db
     .insert(recentlyViewed)
-    .values({ id: nanoid(), userId, documentId, viewedAt: new Date() })
+    .values({ id: nanoid(), userId, documentId, viewedAt: now })
     .onConflictDoUpdate({
       target: [recentlyViewed.userId, recentlyViewed.documentId],
-      set: { viewedAt: new Date() },
+      set: { viewedAt: now },
+      setWhere: lt(recentlyViewed.viewedAt, updateBefore),
     });
 }
 

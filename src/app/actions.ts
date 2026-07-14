@@ -53,6 +53,7 @@ import { getAppUrl } from "@/env/server";
 import { getDb, workspaceMembers, user as userTable } from "@/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { logger } from "@/lib/logger";
+import { measureServerOperation } from "@/lib/performance";
 
 /* -------------------------------------------------------------------------- */
 /* Result helpers                                                              */
@@ -341,7 +342,7 @@ export async function actionListDocumentActivity(input: {
 export async function actionSaveDocument(input: {
   documentId: string;
   title: string;
-  contentJson: Record<string, unknown>;
+  contentJson: string;
 }): Promise<ActionResult<{ id: string; updatedAt: string }>> {
   const session = await requireVerifiedSession();
   return run(async () => {
@@ -349,16 +350,36 @@ export async function actionSaveDocument(input: {
       .object({
         documentId: z.string().min(1),
         title: z.string().min(1).max(500),
-        contentJson: z.record(z.string(), z.unknown()),
+        contentJson: z
+          .string()
+          .min(2)
+          .max(3_500_000, "Document is too large to save.")
+          .transform((value, context): unknown => {
+            try {
+              return JSON.parse(value);
+            } catch {
+              context.addIssue({
+                code: "custom",
+                message: "Document content is invalid.",
+              });
+              return z.NEVER;
+            }
+          })
+          .pipe(z.record(z.string(), z.unknown())),
       })
       .parse(input);
 
-    const doc = await saveDocumentContent({
-      userId: session.user.id,
-      documentId: parsed.documentId,
-      title: parsed.title,
-      contentJson: parsed.contentJson,
-    });
+    const doc = await measureServerOperation(
+      "document.save",
+      () =>
+        saveDocumentContent({
+          userId: session.user.id,
+          documentId: parsed.documentId,
+          title: parsed.title,
+          contentJson: parsed.contentJson,
+        }),
+      { documentId: parsed.documentId },
+    );
     return { id: doc.id, updatedAt: doc.updatedAt.toISOString() };
   });
 }

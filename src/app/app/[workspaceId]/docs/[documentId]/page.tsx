@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { after } from "next/server";
 import Link from "next/link";
 import { FileQuestion, Trash2 } from "lucide-react";
 import { requireVerifiedSession } from "@/lib/session";
@@ -65,7 +66,7 @@ export default async function DocumentPage({
       getSlackStatus(doc.workspaceId),
       refreshSubpageTitles(doc.contentJson),
     ]);
-  await recordDocumentView(session.user.id, doc.id);
+  after(() => recordDocumentView(session.user.id, doc.id));
 
   // The viewer may not be a workspace member (page shared directly with
   // them) — fall back to loading the workspace and treating them as a guest.

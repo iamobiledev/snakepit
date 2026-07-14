@@ -69,6 +69,29 @@ test.describe("performance contracts", () => {
     );
   });
 
+  test("unchanged explicit save does not make a server request", async ({
+    page,
+  }) => {
+    test.skip(!documentUrl, "Set E2E_PERF_DOCUMENT_URL");
+    await signIn(page);
+    await page.goto(documentUrl!);
+    await expect(page.getByLabel("Document title")).toBeVisible();
+
+    const actionRequests: string[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        request.headers()["next-action"]
+      ) {
+        actionRequests.push(request.url());
+      }
+    });
+    await page.keyboard.press("ControlOrMeta+s");
+    await page.waitForTimeout(300);
+    expect(actionRequests).toEqual([]);
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+  });
+
   test("published pages do not load editor runtime code", async ({ page }) => {
     test.skip(!publicDocumentUrl, "Set E2E_PUBLIC_DOCUMENT_URL");
     await page.goto(publicDocumentUrl!);
