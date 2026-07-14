@@ -300,17 +300,22 @@ body {
 /*
  * Notion-style selected atom block (sub-page links, images):
  * a blue rounded ring hugging the block with a faint blue wash.
+ * Only while the editor is focused — ProseMirror's initial selection can
+ * land on a leading atom block (e.g. a sub-page link at the top of the
+ * page), which must not paint a ring before the user interacts.
  * Not shown during block-handle drags.
  */
-.ProseMirror-selectednode {
+.ProseMirror.ProseMirror-focused .ProseMirror-selectednode {
   outline: 2px solid var(--ring);
   outline-offset: -1px;
   border-radius: 6px;
   background-color: rgba(35, 131, 226, 0.06);
 }
 
-.ProseMirror.is-dragging-block .ProseMirror-selectednode {
+.ProseMirror.is-dragging-block .ProseMirror-selectednode,
+.ProseMirror.ProseMirror-focused.is-dragging-block .ProseMirror-selectednode {
   outline: none;
+  background-color: transparent;
 }
 
 /* Source block dims while its custom drag preview follows the cursor. */

@@ -307,7 +307,9 @@ export function BlockHandle({ editor }: BlockHandleProps) {
     if (block.node.isTextblock) {
       setBlockSelectionHighlight(editor.view, block.pos);
     } else {
-      editor.commands.setNodeSelection(block.pos);
+      // Focus first: the selected-node ring is only painted while the
+      // editor is focused (clicking the grip moved focus outside it).
+      editor.chain().focus().setNodeSelection(block.pos).run();
     }
     setTurnIntoOpen(false);
     setMenuOpen(true);
