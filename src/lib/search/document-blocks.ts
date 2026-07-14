@@ -275,8 +275,20 @@ export async function attachLexicalBlockMatches(
     string,
     { blockId: string; blockType: string; text: string; score: number }
   >();
+  const first = new Map<
+    string,
+    { blockId: string; blockType: string; text: string; score: number }
+  >();
   for (const row of rows) {
     const score = lexicalBlockScore(row.text, query);
+    if (!first.has(row.documentId)) {
+      first.set(row.documentId, {
+        blockId: row.blockId,
+        blockType: row.blockType,
+        text: row.text,
+        score,
+      });
+    }
     if (score <= 0 || score <= (best.get(row.documentId)?.score ?? 0)) continue;
     best.set(row.documentId, {
       blockId: row.blockId,
@@ -287,7 +299,7 @@ export async function attachLexicalBlockMatches(
   }
 
   return hits.map((hit) => {
-    const block = best.get(hit.documentId);
+    const block = best.get(hit.documentId) ?? first.get(hit.documentId);
     return block
       ? {
           ...hit,
