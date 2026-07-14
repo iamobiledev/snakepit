@@ -4,7 +4,10 @@ import { getDb, documents, user as userTable, workspaces } from "@/db";
 import { getAppUrl } from "@/env/server";
 import { getMembership } from "@/lib/permissions";
 import { computeDocumentAccess } from "@/lib/documents/access";
-import { getPublicDocument } from "@/lib/documents/service";
+import {
+  getPublicDocument,
+  getDirectPermission,
+} from "@/lib/documents/service";
 import { brand } from "@/config/brand";
 import { logger } from "@/lib/logger";
 import {
@@ -37,6 +40,7 @@ type DocRow = {
   workspaceId: string;
   title: string;
   visibility: "private" | "workspace" | "public";
+  publishedAt: Date | null;
   plainTextContent: string;
   archivedAt: Date | null;
   createdById: string;
@@ -54,6 +58,7 @@ async function loadDoc(documentId: string): Promise<DocRow | null> {
       workspaceId: documents.workspaceId,
       title: documents.title,
       visibility: documents.visibility,
+      publishedAt: documents.publishedAt,
       plainTextContent: documents.plainTextContent,
       archivedAt: documents.archivedAt,
       createdById: documents.createdById,
@@ -114,11 +119,15 @@ export async function processLinkShared(teamId: string, event: LinkSharedEvent) 
       const doc = await loadDoc(link.documentId);
       let sharerAccess: ReturnType<typeof computeDocumentAccess> = "none";
       if (doc && sharer) {
-        const membership = await getMembership(sharer.userId, doc.workspaceId);
+        const [membership, directPermission] = await Promise.all([
+          getMembership(sharer.userId, doc.workspaceId),
+          getDirectPermission(sharer.userId, doc.id),
+        ]);
         sharerAccess = computeDocumentAccess({
           visibility: doc.visibility,
           isCreator: doc.createdById === sharer.userId,
           membershipRole: membership?.role ?? null,
+          directPermission,
           archived: doc.archivedAt !== null,
         });
       }
@@ -126,7 +135,7 @@ export async function processLinkShared(teamId: string, event: LinkSharedEvent) 
       const decision = decideUnfurl({
         exists: Boolean(doc),
         archived: doc?.archivedAt != null,
-        visibility: doc?.visibility ?? null,
+        published: doc?.publishedAt != null,
         sharerLinked: Boolean(sharer),
         sharerAccess,
       });

@@ -17,8 +17,8 @@ export type UnfurlInput = {
   exists: boolean;
   /** Document is in the trash. */
   archived: boolean;
-  /** Document visibility. */
-  visibility: "private" | "workspace" | "public" | null;
+  /** Document is published to the web (published_at set). */
+  published: boolean;
   /** The sharer has a linked Slack identity. */
   sharerLinked: boolean;
   /** The sharer's resolved access to the document ("none" if unlinked). */
@@ -28,9 +28,13 @@ export type UnfurlInput = {
 export function decideUnfurl(input: UnfurlInput): UnfurlDecision {
   if (!input.exists) return "minimal";
   if (input.archived) return "minimal";
-  if (input.visibility === "public") return "full";
+  if (input.published) return "full";
   if (!input.sharerLinked) return "minimal";
-  if (input.sharerAccess === "viewer" || input.sharerAccess === "editor") {
+  if (
+    input.sharerAccess === "viewer" ||
+    input.sharerAccess === "editor" ||
+    input.sharerAccess === "full"
+  ) {
     return "full";
   }
   return "minimal";

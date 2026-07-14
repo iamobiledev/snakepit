@@ -4,6 +4,7 @@ import {
   listWorkspaceDocumentTree,
   listAllFavoriteDocuments,
   listFavoriteDocumentIds,
+  listSharedWithMe,
 } from "@/lib/documents/service";
 import { AppShell } from "@/components/layout/app-shell";
 
@@ -19,10 +20,17 @@ export default async function WorkspaceLayout({
   const { workspaceId } = await params;
   const session = await requireVerifiedSession();
   const workspaces = await listUserWorkspaces(session.user.id);
-  const workspace = workspaces.find((w) => w.id === workspaceId);
+
+  // Viewing a workspace you're not a member of (e.g. a page shared directly
+  // with you) keeps the familiar shell with your own sidebar — your personal
+  // notebook acts as the "current" workspace.
+  const workspace =
+    workspaces.find((w) => w.id === workspaceId) ??
+    workspaces.find((w) => w.isPersonal) ??
+    workspaces[0];
 
   if (!workspace) {
-    // Not a member — render a bare shell. Document pages show the
+    // No workspaces at all — render a bare shell. Document pages show the
     // request-access screen; everything else 404s at the page level.
     return (
       <div className="mx-auto flex min-h-screen w-full max-w-3xl items-center px-4">
@@ -32,7 +40,7 @@ export default async function WorkspaceLayout({
   }
 
   // Notion-style sidebar: trees for every workspace (Private + Teamspaces).
-  const [trees, favoriteDocs, favoriteIds] = await Promise.all([
+  const [trees, favoriteDocs, favoriteIds, sharedDocs] = await Promise.all([
     Promise.all(
       workspaces.map(async (ws) => ({
         workspaceId: ws.id,
@@ -41,6 +49,7 @@ export default async function WorkspaceLayout({
     ),
     listAllFavoriteDocuments(session.user.id),
     listFavoriteDocumentIds(session.user.id),
+    listSharedWithMe(session.user.id),
   ]);
 
   return (
@@ -66,6 +75,12 @@ export default async function WorkspaceLayout({
         workspaceId: f.workspaceId,
       }))}
       favoriteIds={favoriteIds}
+      shared={sharedDocs.map((s) => ({
+        id: s.id,
+        title: s.title,
+        icon: s.icon,
+        workspaceId: s.workspaceId,
+      }))}
     >
       {children}
     </AppShell>

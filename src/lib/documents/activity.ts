@@ -30,7 +30,10 @@ export type ActivityAction =
   | "unpublished"
   | "version_restored"
   | "locked"
-  | "unlocked";
+  | "unlocked"
+  | "shared"
+  | "unshared"
+  | "general_access_changed";
 
 export async function recordDocumentActivity(opts: {
   documentId: string;

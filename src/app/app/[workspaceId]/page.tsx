@@ -192,7 +192,7 @@ export default async function WorkspacePage({
                       )}
                     </span>
                     <span className="flex shrink-0 items-center gap-3 text-xs text-[var(--muted-foreground)]">
-                      {doc.visibility === "public" && (
+                      {doc.publishedAt && (
                         <span className="rounded-full bg-[var(--hero-wash)] px-2 py-0.5 font-medium text-[var(--primary)]">
                           Published
                         </span>

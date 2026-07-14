@@ -138,7 +138,7 @@ describe("decideUnfurl (security matrix)", () => {
   const base = {
     exists: true,
     archived: false,
-    visibility: "workspace" as const,
+    published: false,
     sharerLinked: true,
     sharerAccess: "editor" as const,
   };
@@ -146,18 +146,18 @@ describe("decideUnfurl (security matrix)", () => {
   it("full card for accessible docs shared by linked users", () => {
     expect(decideUnfurl(base)).toBe("full");
     expect(decideUnfurl({ ...base, sharerAccess: "viewer" })).toBe("full");
+    // Direct-share "full access" sharers also unfurl fully.
+    expect(decideUnfurl({ ...base, sharerAccess: "full" })).toBe("full");
   });
 
   it("minimal for deleted docs", () => {
-    expect(decideUnfurl({ ...base, exists: false, visibility: null })).toBe(
-      "minimal",
-    );
+    expect(decideUnfurl({ ...base, exists: false })).toBe("minimal");
   });
 
-  it("minimal for trashed docs — even public ones", () => {
+  it("minimal for trashed docs — even published ones", () => {
     expect(decideUnfurl({ ...base, archived: true })).toBe("minimal");
     expect(
-      decideUnfurl({ ...base, archived: true, visibility: "public" }),
+      decideUnfurl({ ...base, archived: true, published: true }),
     ).toBe("minimal");
   });
 
@@ -165,7 +165,7 @@ describe("decideUnfurl (security matrix)", () => {
     expect(
       decideUnfurl({
         ...base,
-        visibility: "public",
+        published: true,
         sharerLinked: false,
         sharerAccess: "none",
       }),
