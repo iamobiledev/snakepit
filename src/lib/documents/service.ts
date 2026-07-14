@@ -34,6 +34,15 @@ import { slugify } from "@/lib/utils";
 import { logger } from "@/lib/logger";
 import { syncDocumentSearchBlocks } from "@/lib/search/document-blocks";
 
+function refreshDocumentEmbeddingsAfterResponse(documentId: string) {
+  after(async () => {
+    const { refreshDocumentBlockEmbeddings } = await import(
+      "@/lib/search/document-blocks"
+    );
+    await refreshDocumentBlockEmbeddings(documentId);
+  });
+}
+
 /* -------------------------------------------------------------------------- */
 /* Access                                                                      */
 /* -------------------------------------------------------------------------- */
@@ -489,6 +498,7 @@ export async function duplicateDocument(opts: {
     title: updated.title,
     contentJson: updated.contentJson,
   });
+  refreshDocumentEmbeddingsAfterResponse(updated.id);
   revalidatePath(`/app/${source.workspaceId}`, "layout");
   return updated;
 }
@@ -621,6 +631,7 @@ export async function saveDocumentContent(opts: {
     title: updated.title,
     contentJson: updated.contentJson,
   });
+  refreshDocumentEmbeddingsAfterResponse(updated.id);
   if (title !== existing.title) {
     await recomputeBreadcrumbs(db, existing.id);
     // Refresh the sidebar tree (and any sub-page links) that show this title.
@@ -689,6 +700,7 @@ export async function renameDocument(opts: {
     title: updated.title,
     contentJson: updated.contentJson,
   });
+  refreshDocumentEmbeddingsAfterResponse(updated.id);
   await recomputeBreadcrumbs(db, existing.id);
   await recordDocumentActivity({
     documentId: existing.id,
@@ -1109,6 +1121,7 @@ export async function restoreDocumentVersion(opts: {
     title: updated.title,
     contentJson: updated.contentJson,
   });
+  refreshDocumentEmbeddingsAfterResponse(updated.id);
   await recomputeBreadcrumbs(db, existing.id);
   await recordDocumentActivity({
     documentId: existing.id,

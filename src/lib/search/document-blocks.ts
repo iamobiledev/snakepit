@@ -1,19 +1,25 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import {
+  documents,
   documentSearchBlocks,
+  getDb,
   type Database,
 } from "@/db";
 import {
   normalizeDocumentBlocks,
   type SearchableDocumentBlock,
 } from "@/lib/documents/blocks";
+import { EMBEDDING_BLOCK_MAX_CHARS } from "@/lib/ai/embedding-config";
+import {
+  createOpenAIEmbeddings,
+  isOpenAIEmbeddingsConfigured,
+} from "@/lib/ai/openai-embeddings";
+import { logger } from "@/lib/logger";
 
-export const EMBEDDING_DIMENSIONS = 512;
-export const EMBEDDING_MODEL = "text-embedding-3-small";
-export const EMBEDDING_BLOCK_MAX_CHARS = 6_000;
+const EMBEDDING_BATCH_SIZE = 64;
 
 export function buildBlockEmbeddingInput(opts: {
   title: string;
@@ -134,4 +140,92 @@ export async function syncDocumentSearchBlocks(opts: {
   }
 
   return prepared.blocks;
+}
+
+export type EmbeddingRefreshResult = {
+  attempted: number;
+  updated: number;
+};
+
+/**
+ * Embed only current rows that are missing a vector. The hash predicate on
+ * every update makes slow provider responses safe under concurrent autosaves.
+ */
+export async function refreshDocumentBlockEmbeddings(
+  documentId: string,
+): Promise<EmbeddingRefreshResult> {
+  if (!isOpenAIEmbeddingsConfigured()) return { attempted: 0, updated: 0 };
+
+  const db = getDb();
+  const [doc] = await db
+    .select({ title: documents.title, archivedAt: documents.archivedAt })
+    .from(documents)
+    .where(eq(documents.id, documentId))
+    .limit(1);
+  if (!doc || doc.archivedAt) return { attempted: 0, updated: 0 };
+
+  const rows = await db
+    .select({
+      id: documentSearchBlocks.id,
+      blockType: documentSearchBlocks.blockType,
+      textContent: documentSearchBlocks.textContent,
+      inputHash: documentSearchBlocks.inputHash,
+    })
+    .from(documentSearchBlocks)
+    .where(
+      and(
+        eq(documentSearchBlocks.documentId, documentId),
+        isNull(documentSearchBlocks.embedding),
+      ),
+    )
+    .orderBy(asc(documentSearchBlocks.position));
+
+  const currentRows = rows
+    .map((row) => {
+      const input = buildBlockEmbeddingInput({
+        title: doc.title,
+        blockType: row.blockType,
+        text: row.textContent,
+      });
+      return embeddingInputHash(input) === row.inputHash
+        ? { ...row, input }
+        : null;
+    })
+    .filter((row): row is NonNullable<typeof row> => row !== null);
+
+  let updated = 0;
+  for (let start = 0; start < currentRows.length; start += EMBEDDING_BATCH_SIZE) {
+    const batch = currentRows.slice(start, start + EMBEDDING_BATCH_SIZE);
+    const vectors = await createOpenAIEmbeddings(
+      batch.map((row) => row.input),
+    );
+    if (!vectors) continue;
+
+    for (let index = 0; index < batch.length; index++) {
+      const row = batch[index];
+      const changed = await db
+        .update(documentSearchBlocks)
+        .set({
+          embedding: vectors[index],
+          embeddedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(documentSearchBlocks.id, row.id),
+            eq(documentSearchBlocks.inputHash, row.inputHash),
+            isNull(documentSearchBlocks.embedding),
+          ),
+        )
+        .returning({ id: documentSearchBlocks.id });
+      updated += changed.length;
+    }
+  }
+
+  logger.info("search.document_block_embeddings_refreshed", {
+    documentId,
+    attempted: currentRows.length,
+    updated,
+  });
+  return { attempted: currentRows.length, updated };
 }
