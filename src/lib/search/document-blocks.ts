@@ -18,6 +18,7 @@ import {
   isOpenAIEmbeddingsConfigured,
 } from "@/lib/ai/openai-embeddings";
 import { logger } from "@/lib/logger";
+import type { SearchHit } from "./types";
 
 const EMBEDDING_BATCH_SIZE = 64;
 
@@ -228,4 +229,74 @@ export async function refreshDocumentBlockEmbeddings(
     updated,
   });
   return { attempted: currentRows.length, updated };
+}
+
+function lexicalBlockScore(text: string, query: string): number {
+  const normalizedText = text.toLocaleLowerCase();
+  const normalizedQuery = query.toLocaleLowerCase().trim();
+  if (!normalizedQuery) return 0;
+  let score = normalizedText.includes(normalizedQuery) ? 100 : 0;
+  const terms = normalizedQuery.match(/[\p{L}\p{N}]+/gu) ?? [];
+  for (const term of terms) {
+    if (term.length > 1 && normalizedText.includes(term)) score += 1;
+  }
+  return score;
+}
+
+/**
+ * Add the strongest lexical paragraph to already-authorized document hits.
+ * This powers anchored `/docs` and ordinary mention results without moving
+ * permission filtering out of the primary search SQL.
+ */
+export async function attachLexicalBlockMatches(
+  hits: SearchHit[],
+  query: string,
+): Promise<SearchHit[]> {
+  if (hits.length === 0) return hits;
+  const db = getDb();
+  const rows = await db
+    .select({
+      documentId: documentSearchBlocks.documentId,
+      blockId: documentSearchBlocks.blockId,
+      blockType: documentSearchBlocks.blockType,
+      text: documentSearchBlocks.textContent,
+      position: documentSearchBlocks.position,
+    })
+    .from(documentSearchBlocks)
+    .where(
+      inArray(
+        documentSearchBlocks.documentId,
+        hits.map((hit) => hit.documentId),
+      ),
+    )
+    .orderBy(asc(documentSearchBlocks.position));
+
+  const best = new Map<
+    string,
+    { blockId: string; blockType: string; text: string; score: number }
+  >();
+  for (const row of rows) {
+    const score = lexicalBlockScore(row.text, query);
+    if (score <= 0 || score <= (best.get(row.documentId)?.score ?? 0)) continue;
+    best.set(row.documentId, {
+      blockId: row.blockId,
+      blockType: row.blockType,
+      text: row.text,
+      score,
+    });
+  }
+
+  return hits.map((hit) => {
+    const block = best.get(hit.documentId);
+    return block
+      ? {
+          ...hit,
+          matchedBlock: {
+            blockId: block.blockId,
+            blockType: block.blockType,
+            text: block.text,
+          },
+        }
+      : hit;
+  });
 }
