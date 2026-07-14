@@ -265,6 +265,38 @@ Core Web Vitals data in deployed environments. Server operations slower than
 250 ms emit a structured `performance.slow_operation` warning; override that
 threshold with `SLOW_OPERATION_MS`.
 
+### Performance architecture
+
+- Next.js Cache Components provide partial prerendered shells while
+  request-bound authentication and workspace data stream behind local
+  Suspense boundaries.
+- Security headers are emitted by Next configuration, so static and auth pages
+  do not pay for a Proxy/Middleware invocation.
+- Better Auth, Drizzle, sessions, memberships, and common read helpers are
+  reused or request-memoized. Document access is resolved by one joined query.
+- The sidebar loads only the personal/current workspace initially, caps each
+  tree at 500 pages, and loads other teamspaces on expansion.
+- Published and read-only documents use a safe server renderer rather than
+  hydrating TipTap/ProseMirror. Published query results use tagged caches with
+  immediate invalidation on publish, edit, rename, restore, trash, or
+  unpublish.
+- Editor image bytes upload directly from the browser to Vercel Blob. The
+  server issues a narrowly scoped token and records trusted completion
+  metadata; it never buffers the file in a Function.
+- Search cancels superseded browser requests and uses Postgres FTS/trigram
+  operators that match the GIN indexes.
+
+Migration `0006_jazzy_mulholland_black.sql` adds partial indexes for active,
+recent, and trashed page lists plus invitation and activity-coalescing indexes.
+Apply it before deploying this code. Index creation increases migration-time
+I/O but does not change data. A rollback can safely `DROP INDEX` the seven
+indexes declared in that migration; rolling forward is preferred.
+
+`VERCEL_REGION=iad1` and a Neon `aws-us-east-1` primary describe the same
+geography with provider-specific names. `/api/health` reports both
+`functionRegion` and `databaseRegion`; verify their geographic mapping rather
+than comparing the strings literally.
+
 ### Rolling back a deployment
 
 1. Vercel → Project → **Deployments**.
@@ -389,7 +421,8 @@ Replace with Typesense/Meilisearch later without changing the UI.
 - Route: `/p/[slug]` (stable public slug, not internal IDs)
 - Unauthenticated, read-only
 - Open Graph + SEO metadata
-- 404 when not public / missing
+- Not-found UI + `noindex` when not public / missing (a streamed PPR shell may
+  carry HTTP 200, per Next.js soft-404 semantics)
 - `revalidatePath` on publish/unpublish
 
 ### Cron (Vercel Cron)

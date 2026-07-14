@@ -315,7 +315,8 @@ export async function listWorkspaceDocumentTrees(
             visibleTo(userId),
           ),
         )
-        .orderBy(asc(documents.workspaceId), asc(documents.title)),
+        .orderBy(asc(documents.workspaceId), asc(documents.title))
+        .limit(MAX_WORKSPACE_DOCUMENTS * workspaceIds.length),
     { workspaceCount: workspaceIds.length },
   );
 
