@@ -49,9 +49,11 @@ import {
 import { recordDocumentActivity } from "./activity";
 import { shouldCreateVersion } from "./versioning";
 import { extractPlainText } from "./plain-text";
+import { normalizeDocumentBlocks } from "./blocks";
 import { slugify } from "@/lib/utils";
 import { logger } from "@/lib/logger";
 import { measureServerOperation } from "@/lib/performance";
+import { syncDocumentSearchBlocks } from "@/lib/search/document-blocks";
 
 const PUBLIC_DOCUMENTS_TAG = "public-documents";
 
@@ -61,6 +63,15 @@ function publicDocumentTag(slug: string) {
 
 function invalidatePublicDocument(slug: string | null | undefined) {
   if (slug) revalidateTag(publicDocumentTag(slug), { expire: 0 });
+}
+
+function refreshDocumentEmbeddingsAfterResponse(documentId: string) {
+  after(async () => {
+    const { refreshDocumentBlockEmbeddings } = await import(
+      "@/lib/search/document-blocks"
+    );
+    await refreshDocumentBlockEmbeddings(documentId);
+  });
 }
 
 /* -------------------------------------------------------------------------- */
@@ -546,6 +557,10 @@ export async function createDocument(opts: {
   const db = getDb();
   const id = nanoid();
   const title = opts.title?.trim() || "Untitled";
+  const initialContent = normalizeDocumentBlocks({
+    type: "doc",
+    content: [{ type: "paragraph" }],
+  }).contentJson;
 
   let parentId: string | null = opts.parentId ?? null;
   let breadcrumbPath = title;
@@ -575,16 +590,19 @@ export async function createDocument(opts: {
       title,
       breadcrumbPath,
       docType: opts.docType ?? "doc",
-      contentJson: {
-        type: "doc",
-        content: [{ type: "paragraph" }],
-      },
+      contentJson: initialContent,
       plainTextContent: "",
       createdById: opts.userId,
       updatedById: opts.userId,
     })
     .returning();
 
+  await syncDocumentSearchBlocks({
+    db,
+    documentId: doc.id,
+    title: doc.title,
+    contentJson: doc.contentJson,
+  });
   await recordDocumentActivity({
     documentId: doc.id,
     userId: opts.userId,
@@ -612,15 +630,25 @@ export async function duplicateDocument(opts: {
   });
 
   const db = getDb();
+  const copiedContent = normalizeDocumentBlocks(source.contentJson, {
+    regenerateIds: true,
+  }).contentJson;
   const [updated] = await db
     .update(documents)
     .set({
-      contentJson: source.contentJson,
-      plainTextContent: source.plainTextContent,
+      contentJson: copiedContent,
+      plainTextContent: extractPlainText(copiedContent),
       icon: source.icon,
     })
     .where(eq(documents.id, copy.id))
     .returning();
+  await syncDocumentSearchBlocks({
+    db,
+    documentId: updated.id,
+    title: updated.title,
+    contentJson: updated.contentJson,
+  });
+  refreshDocumentEmbeddingsAfterResponse(updated.id);
   revalidatePath(`/app/${source.workspaceId}`, "layout");
   return updated;
 }
@@ -700,7 +728,8 @@ export async function saveDocumentContent(opts: {
   const existing = await requireEditableDocument(opts.userId, opts.documentId);
 
   const title = opts.title?.trim() || existing.title;
-  const plainTextContent = extractPlainText(opts.contentJson);
+  const normalizedContent = normalizeDocumentBlocks(opts.contentJson).contentJson;
+  const plainTextContent = extractPlainText(normalizedContent);
   const db = getDb();
 
   // Snapshot the previous state when the edit is significant.
@@ -738,7 +767,7 @@ export async function saveDocumentContent(opts: {
     .update(documents)
     .set({
       title,
-      contentJson: opts.contentJson,
+      contentJson: normalizedContent,
       plainTextContent,
       updatedById: opts.userId,
       updatedAt: new Date(),
@@ -746,6 +775,13 @@ export async function saveDocumentContent(opts: {
     .where(eq(documents.id, existing.id))
     .returning();
 
+  await syncDocumentSearchBlocks({
+    db,
+    documentId: updated.id,
+    title: updated.title,
+    contentJson: updated.contentJson,
+  });
+  refreshDocumentEmbeddingsAfterResponse(updated.id);
   if (title !== existing.title) {
     await recomputeBreadcrumbs(db, existing.id);
     // A renamed page can be embedded as a sub-page in any published page.
@@ -811,6 +847,13 @@ export async function renameDocument(opts: {
     .set({ title, updatedById: opts.userId, updatedAt: new Date() })
     .where(eq(documents.id, existing.id))
     .returning();
+  await syncDocumentSearchBlocks({
+    db,
+    documentId: updated.id,
+    title: updated.title,
+    contentJson: updated.contentJson,
+  });
+  refreshDocumentEmbeddingsAfterResponse(updated.id);
   await recomputeBreadcrumbs(db, existing.id);
   await recordDocumentActivity({
     documentId: existing.id,
@@ -1245,18 +1288,28 @@ export async function restoreDocumentVersion(opts: {
     createdById: opts.userId,
   });
 
+  const restoredContent = normalizeDocumentBlocks(
+    version.contentJson,
+  ).contentJson;
   const [updated] = await db
     .update(documents)
     .set({
       title: version.title,
-      contentJson: version.contentJson,
-      plainTextContent: version.plainTextContent,
+      contentJson: restoredContent,
+      plainTextContent: extractPlainText(restoredContent),
       updatedById: opts.userId,
       updatedAt: new Date(),
     })
     .where(eq(documents.id, existing.id))
     .returning();
 
+  await syncDocumentSearchBlocks({
+    db,
+    documentId: updated.id,
+    title: updated.title,
+    contentJson: updated.contentJson,
+  });
+  refreshDocumentEmbeddingsAfterResponse(updated.id);
   await recomputeBreadcrumbs(db, existing.id);
   await recordDocumentActivity({
     documentId: existing.id,
