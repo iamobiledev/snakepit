@@ -123,6 +123,29 @@ test.describe.serial("core flows", () => {
     await expect(editor.getByText("Milestones")).toBeVisible();
   });
 
+  test("paragraph deep links scroll to and highlight the saved block", async ({
+    page,
+  }) => {
+    await signIn(page, DEMO_EMAIL);
+    await page.goto(docUrl);
+    const paragraph = page
+      .locator(".ProseMirror p")
+      .filter({ hasText: `Our launch checklist ${runId}` })
+      .first();
+    const blockId = await paragraph.getAttribute("data-block-id");
+    expect(blockId).toBeTruthy();
+
+    await page.goto(`${docUrl}#block-${blockId}`);
+    const target = page.locator(`#block-${blockId}`);
+    await expect(target).toBeVisible();
+    await expect(target).toHaveClass(/is-deep-link-target/);
+
+    // Stale links still open the document normally.
+    await page.goto(`${docUrl}#block-does_not_exist`);
+    await expect(page.getByLabel("Document title")).toHaveValue(docTitle);
+    await expect(page.locator(".ProseMirror")).toBeVisible();
+  });
+
   test("'/subpage' creates a nested page linked from the parent", async ({
     page,
   }) => {
