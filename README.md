@@ -308,9 +308,11 @@ pnpm search:backfill
 curl --fail https://your-deployment.vercel.app/api/health
 ```
 
-`db:check` exits non-zero when migrations 0006/0007, pgvector, or their
-required indexes are missing. `/api/health` returns 503 with secret-free
-schema readiness details when the database is unavailable or incomplete.
+`db:check` exits non-zero when migrations 0006–0008, pgvector, the monotonic
+document revision column, or required indexes are missing. Revision tokens
+prevent concurrent whole-document saves from silently overwriting one another.
+`/api/health` returns 503 with secret-free schema readiness details when the
+database is unavailable or incomplete.
 During rollback, keep the newer schema in place; migrations are additive and
 older application versions safely ignore these tables/indexes.
 
