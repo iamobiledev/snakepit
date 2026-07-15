@@ -13,6 +13,7 @@ import {
   isInvitationActive,
 } from "@/lib/invitations";
 import { logger } from "@/lib/logger";
+import { getAppUrl } from "@/env/server";
 
 export type InvitationAuthResult =
   | { ok: true }
@@ -135,6 +136,13 @@ export async function actionRegisterForInvitation(input: {
   try {
     const requestHeaders = new Headers(await headers());
     requestHeaders.set(INVITATION_SIGN_UP_HEADER, invitation.token);
+    const signUpRequest = new Request(
+      `${getAppUrl()}/api/auth/sign-up/email`,
+      {
+        method: "POST",
+        headers: requestHeaders,
+      },
+    );
     const auth = getAuth();
     const signUp = await auth.api.signUpEmail({
       body: {
@@ -144,6 +152,8 @@ export async function actionRegisterForInvitation(input: {
         callbackURL: `/invitations/${encodeURIComponent(invitation.token)}`,
       },
       headers: requestHeaders,
+      request: signUpRequest,
+      asResponse: false,
     });
 
     // Re-check the bearer proof after Better Auth creates the credential
