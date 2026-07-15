@@ -87,6 +87,7 @@ export async function sendVerificationEmail(opts: {
   url: string;
   name?: string;
 }) {
+  const url = canonicalizeAppUrl(opts.url);
   const provider = getEmailProvider();
   await provider.send({
     to: opts.to,
@@ -98,10 +99,10 @@ export async function sendVerificationEmail(opts: {
         p`Hi${opts.name ? ` ${opts.name}` : ""},`,
         p`Please confirm your email address to finish setting up your ${brand.name} account.`,
       ],
-      cta: { label: "Verify email", url: opts.url },
+      cta: { label: "Verify email", url },
       noteHtml: p`If you didn't create an account, you can safely ignore this message.`,
     }),
-    text: `Verify your email: ${opts.url}`,
+    text: `Verify your email: ${url}`,
   });
 }
 
@@ -109,6 +110,7 @@ export async function sendPasswordResetEmail(opts: {
   to: string;
   url: string;
 }) {
+  const url = canonicalizeAppUrl(opts.url);
   const provider = getEmailProvider();
   await provider.send({
     to: opts.to,
@@ -119,10 +121,10 @@ export async function sendPasswordResetEmail(opts: {
       paragraphsHtml: [
         p`We received a request to reset the password for your ${brand.name} account.`,
       ],
-      cta: { label: "Reset password", url: opts.url },
+      cta: { label: "Reset password", url },
       noteHtml: p`If you didn't request this, you can safely ignore this message — your password won't change.`,
     }),
-    text: `Reset your password: ${opts.url}`,
+    text: `Reset your password: ${url}`,
   });
 }
 
