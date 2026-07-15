@@ -3,13 +3,18 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import {
-  actionRegisterForInvitation,
-  actionSignInForInvitation,
-} from "@/app/invitations/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { signIn } from "@/lib/auth-client";
+
+type RegistrationResult =
+  | { ok: true }
+  | {
+      ok: false;
+      code: string;
+      error: string;
+    };
 
 export function InvitationAuthForm({
   token,
@@ -65,28 +70,61 @@ export function InvitationAuthForm({
           const form = new FormData(event.currentTarget);
           setError(null);
           startTransition(async () => {
-            const result =
-              mode === "register"
-                ? await actionRegisterForInvitation({
+            const password = String(form.get("password") ?? "");
+            if (mode === "register") {
+              let registration: RegistrationResult;
+              try {
+                const response = await fetch("/api/invitations/register", {
+                  method: "POST",
+                  credentials: "same-origin",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
                     token,
                     name: String(form.get("name") ?? ""),
-                    password: String(form.get("password") ?? ""),
+                    password,
                     confirmPassword: String(
                       form.get("confirmPassword") ?? "",
                     ),
-                  })
-                : await actionSignInForInvitation({
-                    token,
-                    password: String(form.get("password") ?? ""),
-                  });
-
-            if (!result.ok) {
-              if (result.code === "ACCOUNT_EXISTS") {
-                setMode("sign-in");
+                  }),
+                });
+                registration =
+                  (await response.json()) as RegistrationResult;
+              } catch {
+                setError(
+                  "We couldn’t continue with this invitation. Please try again.",
+                );
+                return;
               }
-              setError(result.error);
+
+              if (!registration.ok) {
+                if (registration.code === "ACCOUNT_EXISTS") {
+                  setMode("sign-in");
+                }
+                setError(registration.error);
+                return;
+              }
+            }
+
+            // Sign in through Better Auth's browser endpoint after the server
+            // has created and verified an invited account. Keeping cookie
+            // mutation outside the registration Server Action avoids coupling
+            // its response to an automatic RSC re-render.
+            const signedIn = await signIn.email({
+              email,
+              password,
+            });
+            if (signedIn.error) {
+              const needsVerification = signedIn.error.message
+                ?.toLowerCase()
+                .includes("email not verified");
+              setError(
+                needsVerification
+                  ? "Verify this account’s email before continuing."
+                  : "The password is incorrect. Try again.",
+              );
               return;
             }
+
             router.refresh();
           });
         }}

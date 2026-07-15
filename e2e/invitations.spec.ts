@@ -62,7 +62,6 @@ async function registerFromInvitation(
   browser: Browser,
   token: string,
   email: string,
-  screenshotName: string,
 ) {
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -76,7 +75,6 @@ async function registerFromInvitation(
   await page
     .getByRole("button", { name: "Set password and continue" })
     .click();
-  await shot(page, screenshotName);
   return { context, page };
 }
 
@@ -111,12 +109,14 @@ test.describe.serial("invitation onboarding", () => {
       browser,
       token,
       workspaceInvitee,
-      "30-invitation-password-setup",
     );
     await expect(
       invitee.page.getByRole("button", { name: "Accept invitation" }),
     ).toBeVisible({ timeout: 15_000 });
-    await shot(invitee.page, "34-workspace-invitation-ready-to-accept");
+    await shot(
+      invitee.page,
+      `34-workspace-invitation-ready-to-accept-${runId}`,
+    );
     expect(
       psql(
         `SELECT email_verified FROM "user" WHERE email='${workspaceInvitee}'`,
@@ -133,7 +133,7 @@ test.describe.serial("invitation onboarding", () => {
         `SELECT wm.role FROM workspace_members wm JOIN "user" u ON u.id=wm.user_id WHERE wm.workspace_id='${workspaceId}' AND u.email='${workspaceInvitee}'`,
       ),
     ).toBe("member");
-    await shot(invitee.page, "31-invitation-accepted");
+    await shot(invitee.page, `36-workspace-invitation-accepted-${runId}`);
     await invitee.context.close();
 
     const laterContext = await browser.newContext();
@@ -213,19 +213,21 @@ test.describe.serial("invitation onboarding", () => {
       browser,
       token,
       documentInvitee,
-      "32-document-invitation-password-setup",
     );
     await expect(
       invitee.page.getByRole("button", { name: "Open the page" }),
     ).toBeVisible({ timeout: 15_000 });
-    await shot(invitee.page, "35-document-invitation-ready-to-open");
+    await shot(
+      invitee.page,
+      `35-document-invitation-ready-to-open-${runId}`,
+    );
     await invitee.page.getByRole("button", { name: "Open the page" }).click();
     await invitee.page.waitForURL(new RegExp(`/docs/${documentId}$`));
     await expect(
       invitee.page.getByRole("heading", { name: title }),
     ).toBeVisible();
     await expect(invitee.page.locator(".ProseMirror")).toHaveCount(0);
-    await shot(invitee.page, "33-document-invitation-opened");
+    await shot(invitee.page, `37-document-invitation-opened-${runId}`);
     await invitee.context.close();
   });
 
