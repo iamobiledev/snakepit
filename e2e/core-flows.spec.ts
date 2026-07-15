@@ -197,6 +197,9 @@ test.describe.serial("core flows", () => {
     const subpageLink = page
       .locator(".ProseMirror [data-type='subpage'] a")
       .first();
+    await expect(
+      page.locator(".ProseMirror [data-type='subpage'] a"),
+    ).toHaveCount(1);
     await expect(subpageLink).toContainText(`Chapter One ${runId}`);
     await shot(page, "02b-subpage-link");
 

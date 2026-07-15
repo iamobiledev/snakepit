@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:degraded-index": "playwright test e2e/degraded-index.spec.ts --workers=1",
     "test:perf": "playwright test e2e/performance.spec.ts",
     "perf:audit": "node scripts/perf-audit.mjs",
     "db:generate": "drizzle-kit generate",
