@@ -1,6 +1,6 @@
 import "server-only";
 import { brand } from "@/config/brand";
-import { getAppUrl, getServerEnv } from "@/env/server";
+import { getAppUrl, getServerEnv, canonicalizeAppUrl } from "@/env/server";
 import { ConsoleEmailProvider } from "./types";
 import { ResendEmailProvider } from "./resend";
 import type { EmailProvider } from "./types";
