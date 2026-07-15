@@ -10,10 +10,11 @@ import {
 } from "@/lib/documents/blocks";
 
 describe("brand config", () => {
-  it("exposes Docloom naming from a single source", () => {
-    expect(brand.name).toBe("Docloom");
+  it("exposes BackBeat Notes naming from a single source", () => {
+    expect(brand.name).toBe("BackBeat Notes");
     expect(brand.tagline).toContain("knowledge");
     expect(brand.title).toContain(brand.name);
+    expect(brand.siteUrl).toBe("https://backbeatnotes.com");
   });
 });
 
