@@ -14,9 +14,8 @@ export const brand = {
     return `${this.name} | Collaborative docs and team knowledge`;
   },
   socialTitle: "Your team's knowledge, in rhythm.",
-  siteUrl: (
-    process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
-  ).replace(/\/$/, ""),
+  /** Production canonical origin used by metadata, sitemaps, and structured data. */
+  siteUrl: "https://backbeatnotes.com",
   themeColor: "#2383e2",
   backgroundColor: "#ffffff",
   /** Support / from-name for transactional email */

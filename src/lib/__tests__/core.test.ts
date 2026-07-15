@@ -14,6 +14,7 @@ describe("brand config", () => {
     expect(brand.name).toBe("BackBeat Notes");
     expect(brand.tagline).toContain("knowledge");
     expect(brand.title).toContain(brand.name);
+    expect(brand.siteUrl).toBe("https://backbeatnotes.com");
   });
 });
 
