@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { brand } from "@/config/brand";
 
 /**
  * Server-only environment variables.
@@ -142,15 +143,48 @@ export function getServerEnv(): ServerEnv {
   return cached;
 }
 
-/** App base URL used for auth callbacks, invitations, and public links. */
+function stripTrailingSlash(url: string): string {
+  return url.replace(/\/$/, "");
+}
+
+/**
+ * App base URL used for auth callbacks, invitations, and public links.
+ *
+ * On Vercel Production this is always `brand.siteUrl` (`https://backbeatnotes.com`)
+ * so a mis-set `NEXT_PUBLIC_APP_URL` / `BETTER_AUTH_URL` (e.g. a `*.vercel.app`
+ * alias) cannot leak into invitation or OAuth emails. Preview and local still
+ * follow env / `VERCEL_URL` / localhost.
+ */
 export function getAppUrl(): string {
-  const env = getServerEnv();
-  const configured = env.BETTER_AUTH_URL ?? env.NEXT_PUBLIC_APP_URL;
-  if (configured) return configured.replace(/\/$/, "");
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`.replace(/\/$/, "");
+  if (process.env.VERCEL_ENV === "production") {
+    return stripTrailingSlash(brand.siteUrl);
   }
+
+  const configured =
+    process.env.BETTER_AUTH_URL ??
+    process.env.NEXT_PUBLIC_APP_URL ??
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined);
+
+  if (configured) return stripTrailingSlash(configured);
   return "http://localhost:3000";
+}
+
+/**
+ * Rewrite an absolute app URL onto the Production canonical host.
+ * Used for Better Auth verification/reset links that were built from the
+ * request host (which may be a `*.vercel.app` alias). No-op outside Production.
+ */
+export function canonicalizeAppUrl(url: string): string {
+  if (process.env.VERCEL_ENV !== "production") return url;
+  try {
+    const parsed = new URL(url);
+    const canonical = new URL(brand.siteUrl);
+    parsed.protocol = canonical.protocol;
+    parsed.host = canonical.host;
+    return parsed.toString();
+  } catch {
+    return url;
+  }
 }
 
 function hostFromUrlOrHost(value: string): string | null {

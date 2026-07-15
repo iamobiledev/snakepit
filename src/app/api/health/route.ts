@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
+import { getAppUrl } from "@/env/server";
 import { resolveEmailDeliveryStatus } from "@/lib/email";
 
 /**
@@ -79,6 +80,12 @@ export async function GET() {
     database.connected &&
     database.coreSchemaReady &&
     database.searchSchemaReady;
+  let appUrlHost = "unknown";
+  try {
+    appUrlHost = new URL(getAppUrl()).host;
+  } catch {
+    appUrlHost = "invalid";
+  }
   const checks = {
     ok,
     service: "backbeat-notes",
@@ -89,6 +96,8 @@ export async function GET() {
       hasDatabaseUrl: Boolean(process.env.DATABASE_URL),
       hasAuthSecret: Boolean(process.env.BETTER_AUTH_SECRET),
       hasAppUrl: Boolean(process.env.NEXT_PUBLIC_APP_URL),
+      /** Resolved outbound app host (no path/secrets) — Production should be backbeatnotes.com. */
+      appUrlHost,
       hasBlobToken: Boolean(process.env.BLOB_READ_WRITE_TOKEN),
       hasResend: Boolean(process.env.RESEND_API_KEY),
       hasEmailFrom: Boolean(process.env.EMAIL_FROM),

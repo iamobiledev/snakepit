@@ -507,7 +507,7 @@ Long-running processes, sticky sessions, always-on WebSockets, local filesystem 
 
 ### Auth not working on production domain
 
-1. `NEXT_PUBLIC_APP_URL` / `BETTER_AUTH_URL` must be the HTTPS **custom domain** (e.g. `https://backbeatnotes.com`), not a `*.vercel.app` alias. Email/OAuth links use this value.
+1. `NEXT_PUBLIC_APP_URL` / `BETTER_AUTH_URL` must be the HTTPS **custom domain** (e.g. `https://backbeatnotes.com`), not a `*.vercel.app` alias. On Vercel Production, invite/OAuth/email links are also **code-pinned** to `brand.siteUrl` (`https://backbeatnotes.com`) so a mis-set alias cannot leak into emails.
 2. The browser auth client calls same-origin `/api/auth` (it does **not** hardcode `NEXT_PUBLIC_APP_URL`), so sign-in works on both the custom domain and Vercel aliases.
 3. If you still see CORS errors to a different hostname, an old client bundle is caching a cross-origin `baseURL` — redeploy after this fix.
 4. Optional: set `BETTER_AUTH_TRUSTED_ORIGINS` to a comma-separated list of extra hosts/origins (www, staging, etc.).
