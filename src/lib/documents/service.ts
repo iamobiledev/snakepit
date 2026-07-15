@@ -64,22 +64,37 @@ function invalidatePublicDocument(slug: string | null | undefined) {
   if (slug) revalidateTag(publicDocumentTag(slug), { expire: 0 });
 }
 
-function refreshDocumentSearchAfterResponse(doc: {
+async function syncDocumentSearchAfterWrite(doc: {
   id: string;
   title: string;
   contentJson: Record<string, unknown>;
   updatedAt: Date;
 }) {
+  const { syncDocumentSearchIndexBestEffort } = await import(
+    "@/lib/search/document-blocks"
+  );
+  const result = await syncDocumentSearchIndexBestEffort({
+    documentId: doc.id,
+    expectedUpdatedAt: doc.updatedAt,
+    title: doc.title,
+    contentJson: doc.contentJson,
+  });
+  if (result.status !== "synced") return;
+
+  // Only external AI work is deferred. The relational paragraph index is
+  // already consistent (or explicitly degraded) when the mutation returns.
   after(async () => {
-    const { refreshDocumentSearchIndex } = await import(
-      "@/lib/search/document-blocks"
-    );
-    await refreshDocumentSearchIndex({
-      documentId: doc.id,
-      expectedUpdatedAt: doc.updatedAt,
-      title: doc.title,
-      contentJson: doc.contentJson,
-    });
+    try {
+      const { refreshDocumentBlockEmbeddings } = await import(
+        "@/lib/search/document-blocks"
+      );
+      await refreshDocumentBlockEmbeddings(doc.id);
+    } catch (error) {
+      logger.error("search.document_embeddings_refresh_failed", {
+        documentId: doc.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   });
 }
 
@@ -622,7 +637,7 @@ export async function createDocument(opts: {
     })
     .returning();
 
-  refreshDocumentSearchAfterResponse(doc);
+  await syncDocumentSearchAfterWrite(doc);
   await recordDocumentActivity({
     documentId: doc.id,
     userId: opts.userId,
@@ -669,7 +684,7 @@ export async function duplicateDocument(opts: {
       updatedById: opts.userId,
     })
     .returning();
-  refreshDocumentSearchAfterResponse(copy);
+  await syncDocumentSearchAfterWrite(copy);
   await recordDocumentActivity({
     documentId: copy.id,
     userId: opts.userId,
@@ -810,7 +825,7 @@ export async function saveDocumentContent(opts: {
     .where(eq(documents.id, existing.id))
     .returning();
 
-  refreshDocumentSearchAfterResponse(updated);
+  await syncDocumentSearchAfterWrite(updated);
   if (title !== existing.title) {
     await recomputeBreadcrumbs(db, existing.id);
     // A renamed page can be embedded as a sub-page in any published page.
@@ -883,7 +898,7 @@ export async function renameDocument(opts: {
     .set({ title, updatedById: opts.userId, updatedAt: new Date() })
     .where(eq(documents.id, existing.id))
     .returning();
-  refreshDocumentSearchAfterResponse(updated);
+  await syncDocumentSearchAfterWrite(updated);
   await recomputeBreadcrumbs(db, existing.id);
   await recordDocumentActivity({
     documentId: existing.id,
@@ -1333,7 +1348,7 @@ export async function restoreDocumentVersion(opts: {
     .where(eq(documents.id, existing.id))
     .returning();
 
-  refreshDocumentSearchAfterResponse(updated);
+  await syncDocumentSearchAfterWrite(updated);
   await recomputeBreadcrumbs(db, existing.id);
   await recordDocumentActivity({
     documentId: existing.id,

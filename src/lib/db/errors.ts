@@ -20,30 +20,27 @@ export function postgresErrorCode(error: unknown): string | null {
   return null;
 }
 
-function errorMessages(error: unknown): string {
-  const messages: string[] = [];
+type PostgresErrorLayer = {
+  code?: unknown;
+  table?: unknown;
+  message?: unknown;
+  cause?: unknown;
+};
+
+function errorLayers(error: unknown): PostgresErrorLayer[] {
+  const layers: PostgresErrorLayer[] = [];
   let current = error;
   const visited = new Set<unknown>();
 
   for (let depth = 0; depth < 12; depth++) {
-    if (!current || visited.has(current)) break;
+    if (!current || typeof current !== "object" || visited.has(current)) break;
     visited.add(current);
-
-    if (current instanceof Error) {
-      messages.push(current.message);
-      current = (current as Error & { cause?: unknown }).cause;
-      continue;
-    }
-    if (typeof current === "object") {
-      const record = current as { message?: unknown; cause?: unknown };
-      if (typeof record.message === "string") messages.push(record.message);
-      current = record.cause;
-      continue;
-    }
-    break;
+    const layer = current as PostgresErrorLayer;
+    layers.push(layer);
+    current = layer.cause;
   }
 
-  return messages.join("\n");
+  return layers;
 }
 
 /**
@@ -54,8 +51,20 @@ export function isMissingPostgresRelation(
   error: unknown,
   relation: string,
 ): boolean {
-  return (
-    postgresErrorCode(error) === "42P01" &&
-    errorMessages(error).toLocaleLowerCase().includes(relation.toLocaleLowerCase())
+  const escaped = relation.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const exactMissingRelation = new RegExp(
+    `\\brelation\\s+"(?:public\\.)?${escaped}"\\s+does not exist\\b`,
+    "i",
   );
+
+  return errorLayers(error).some((layer) => {
+    if (layer.code !== "42P01") return false;
+    if (layer.table === relation || layer.table === `public.${relation}`) {
+      return true;
+    }
+    return (
+      typeof layer.message === "string" &&
+      exactMissingRelation.test(layer.message)
+    );
+  });
 }

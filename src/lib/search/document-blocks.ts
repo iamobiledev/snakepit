@@ -1,6 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { and, asc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import {
   documents,
@@ -22,7 +22,6 @@ import { logger } from "@/lib/logger";
 import type { SearchHit } from "./types";
 
 const EMBEDDING_BATCH_SIZE = 64;
-const UPSERT_BATCH_SIZE = 250;
 
 export function buildBlockEmbeddingInput(opts: {
   title: string;
@@ -83,115 +82,131 @@ export async function syncDocumentSearchBlocks(opts: {
   documentId: string;
   title: string;
   contentJson: Record<string, unknown>;
-}): Promise<PreparedSearchBlock[]> {
+  expectedUpdatedAt?: Date;
+}): Promise<{ blocks: PreparedSearchBlock[]; applied: boolean }> {
   const prepared = prepareDocumentSearchBlocks({
     title: opts.title,
     contentJson: opts.contentJson,
   });
+  const input = prepared.blocks.map((block) => ({
+    id: nanoid(),
+    blockId: block.blockId,
+    blockType: block.blockType,
+    position: block.position,
+    textContent: block.text.slice(0, EMBEDDING_BLOCK_MAX_CHARS),
+    inputHash: block.inputHash,
+  }));
 
-  for (
-    let start = 0;
-    start < prepared.blocks.length;
-    start += UPSERT_BATCH_SIZE
-  ) {
-    const batch = prepared.blocks.slice(start, start + UPSERT_BATCH_SIZE);
-    await opts.db
-      .insert(documentSearchBlocks)
-      .values(
-        batch.map((block) => ({
-          id: nanoid(),
-          documentId: opts.documentId,
-          blockId: block.blockId,
-          blockType: block.blockType,
-          position: block.position,
-          textContent: block.text.slice(0, EMBEDDING_BLOCK_MAX_CHARS),
-          inputHash: block.inputHash,
-        })),
+  // Upsert and removal are one guarded SQL statement. This prevents an older
+  // concurrent autosave from replacing a newer document's block generation,
+  // and avoids partial generations if any part of the synchronization fails.
+  const result = await opts.db.execute(sql`
+    WITH current_document AS (
+      SELECT id
+      FROM documents
+      WHERE id = ${opts.documentId}
+        ${
+          opts.expectedUpdatedAt
+            ? sql`AND updated_at = ${opts.expectedUpdatedAt}`
+            : sql``
+        }
+    ),
+    input_blocks AS (
+      SELECT *
+      FROM jsonb_to_recordset(${JSON.stringify(input)}::jsonb) AS block(
+        id text,
+        "blockId" text,
+        "blockType" text,
+        position integer,
+        "textContent" text,
+        "inputHash" text
       )
-      .onConflictDoUpdate({
-        target: [
-          documentSearchBlocks.documentId,
-          documentSearchBlocks.blockId,
-        ],
-        set: {
-          blockType: sql`excluded.block_type`,
-          position: sql`excluded.position`,
-          textContent: sql`excluded.text_content`,
-          inputHash: sql`excluded.input_hash`,
-          embedding: sql`CASE
-            WHEN ${documentSearchBlocks.inputHash} = excluded.input_hash
-            THEN ${documentSearchBlocks.embedding}
-            ELSE NULL
-          END`,
-          embeddedAt: sql`CASE
-            WHEN ${documentSearchBlocks.inputHash} = excluded.input_hash
-            THEN ${documentSearchBlocks.embeddedAt}
-            ELSE NULL
-          END`,
-          updatedAt: new Date(),
-        },
-      })
-  }
-
-  const currentBlockIds = prepared.blocks.map((block) => block.blockId);
-  await opts.db.delete(documentSearchBlocks).where(
-    currentBlockIds.length === 0
-      ? eq(documentSearchBlocks.documentId, opts.documentId)
-      : and(
-          eq(documentSearchBlocks.documentId, opts.documentId),
-          notInArray(documentSearchBlocks.blockId, currentBlockIds),
-        ),
-  );
-
-  return prepared.blocks;
+    ),
+    upserted AS (
+      INSERT INTO document_search_blocks (
+        id,
+        document_id,
+        block_id,
+        block_type,
+        position,
+        text_content,
+        input_hash
+      )
+      SELECT
+        block.id,
+        ${opts.documentId},
+        block."blockId",
+        block."blockType",
+        block.position,
+        block."textContent",
+        block."inputHash"
+      FROM input_blocks block
+      CROSS JOIN current_document
+      ON CONFLICT (document_id, block_id) DO UPDATE SET
+        block_type = EXCLUDED.block_type,
+        position = EXCLUDED.position,
+        text_content = EXCLUDED.text_content,
+        input_hash = EXCLUDED.input_hash,
+        embedding = CASE
+          WHEN document_search_blocks.input_hash = EXCLUDED.input_hash
+          THEN document_search_blocks.embedding
+          ELSE NULL
+        END,
+        embedded_at = CASE
+          WHEN document_search_blocks.input_hash = EXCLUDED.input_hash
+          THEN document_search_blocks.embedded_at
+          ELSE NULL
+        END,
+        updated_at = now()
+      RETURNING block_id
+    ),
+    deleted AS (
+      DELETE FROM document_search_blocks existing
+      WHERE existing.document_id = ${opts.documentId}
+        AND EXISTS (SELECT 1 FROM current_document)
+        AND NOT EXISTS (
+          SELECT 1
+          FROM input_blocks current
+          WHERE current."blockId" = existing.block_id
+        )
+      RETURNING existing.id
+    )
+    SELECT EXISTS (SELECT 1 FROM current_document) AS applied
+  `);
+  const row = result.rows[0] as { applied?: boolean } | undefined;
+  return { blocks: prepared.blocks, applied: row?.applied === true };
 }
 
-export type DocumentSearchRefreshResult =
-  | { status: "synced"; blocks: number; embeddingsUpdated: number }
+export type DocumentSearchSyncOutcome =
+  | { status: "synced"; blocks: number }
   | { status: "stale" }
   | { status: "schema-unavailable" }
   | { status: "failed" };
 
 /**
- * Refresh a derived search index without ever rejecting the caller.
+ * Synchronize a derived search index without ever rejecting the canonical
+ * document write.
  *
- * `expectedUpdatedAt` prevents an older deferred autosave from overwriting a
- * newer index snapshot. A backfill remains the repair path if serverless
- * after-response work is interrupted.
+ * `expectedUpdatedAt` and the single guarded statement prevent an older
+ * concurrent autosave from overwriting a newer index generation.
  */
-export async function refreshDocumentSearchIndex(opts: {
+export async function syncDocumentSearchIndexBestEffort(opts: {
   documentId: string;
   expectedUpdatedAt: Date;
   title: string;
   contentJson: Record<string, unknown>;
-}): Promise<DocumentSearchRefreshResult> {
+}): Promise<DocumentSearchSyncOutcome> {
   try {
     const db = getDb();
-    const [current] = await db
-      .select({ updatedAt: documents.updatedAt })
-      .from(documents)
-      .where(eq(documents.id, opts.documentId))
-      .limit(1);
-
-    if (
-      !current ||
-      current.updatedAt.getTime() !== opts.expectedUpdatedAt.getTime()
-    ) {
-      return { status: "stale" };
-    }
-
-    const blocks = await syncDocumentSearchBlocks({
+    const result = await syncDocumentSearchBlocks({
       db,
       documentId: opts.documentId,
       title: opts.title,
       contentJson: opts.contentJson,
+      expectedUpdatedAt: opts.expectedUpdatedAt,
     });
-    const embeddings = await refreshDocumentBlockEmbeddings(opts.documentId);
-    return {
-      status: "synced",
-      blocks: blocks.length,
-      embeddingsUpdated: embeddings.updated,
-    };
+    if (!result.applied) return { status: "stale" };
+    return { status: "synced", blocks: result.blocks.length };
   } catch (error) {
     if (isMissingPostgresRelation(error, "document_search_blocks")) {
       logger.warn("search.document_index_schema_unavailable", {
