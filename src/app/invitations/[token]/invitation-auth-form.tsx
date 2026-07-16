@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,7 +28,6 @@ export function InvitationAuthForm({
   currentSessionEmail?: string;
   accountVerified?: boolean;
 }) {
-  const router = useRouter();
   const [mode, setMode] = useState(initialMode);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -125,7 +123,13 @@ export function InvitationAuthForm({
               return;
             }
 
-            router.refresh();
+            // Hard navigate so the invitation page reloads with the new
+            // session. Soft router.refresh() inside useTransition can hang
+            // indefinitely with cacheComponents, leaving the button stuck on
+            // "Setting up…" even though auth already succeeded.
+            window.location.assign(
+              `/invitations/${encodeURIComponent(token)}`,
+            );
           });
         }}
       >
