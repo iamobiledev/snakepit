@@ -268,14 +268,18 @@ export type GoogleAuthConfig = {
 /**
  * Google OAuth sign-in configuration, or null when not configured.
  * The "Continue with Google" button is hidden while this returns null.
+ * Reads process.env directly (like getAppUrl) so the optional feature works
+ * regardless of when full env validation runs.
  */
 export function getGoogleAuthConfig(): GoogleAuthConfig | null {
-  const env = getServerEnv();
-  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) return null;
+  const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) return null;
   return {
-    clientId: env.GOOGLE_CLIENT_ID,
-    clientSecret: env.GOOGLE_CLIENT_SECRET,
-    hostedDomain: env.GOOGLE_HOSTED_DOMAIN?.trim().toLowerCase() || undefined,
+    clientId,
+    clientSecret,
+    hostedDomain:
+      process.env.GOOGLE_HOSTED_DOMAIN?.trim().toLowerCase() || undefined,
   };
 }
 

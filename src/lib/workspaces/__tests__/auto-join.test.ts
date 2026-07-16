@@ -1,0 +1,94 @@
+import { describe, expect, it } from "vitest";
+import {
+  emailDomainOf,
+  normalizeAutoJoinDomain,
+  validateAutoJoinDomain,
+  PUBLIC_EMAIL_DOMAINS,
+} from "@/lib/workspaces/auto-join";
+
+describe("emailDomainOf", () => {
+  it("extracts and lowercases the domain", () => {
+    expect(emailDomainOf("alice@rowsone.com")).toBe("rowsone.com");
+    expect(emailDomainOf("Alice@RowsOne.COM")).toBe("rowsone.com");
+    expect(emailDomainOf("  bob@rowsone.com  ")).toBe("rowsone.com");
+  });
+
+  it("supports subdomains", () => {
+    expect(emailDomainOf("dev@team.rowsone.com")).toBe("team.rowsone.com");
+  });
+
+  it("uses the last @ for quoted/plus addresses", () => {
+    expect(emailDomainOf("a+tag@rowsone.com")).toBe("rowsone.com");
+  });
+
+  it("returns null for malformed emails", () => {
+    expect(emailDomainOf("not-an-email")).toBeNull();
+    expect(emailDomainOf("@rowsone.com")).toBeNull();
+    expect(emailDomainOf("alice@")).toBeNull();
+    expect(emailDomainOf("alice@nodot")).toBeNull();
+    expect(emailDomainOf("alice@-bad-.com")).toBeNull();
+    expect(emailDomainOf("")).toBeNull();
+  });
+});
+
+describe("normalizeAutoJoinDomain", () => {
+  it("trims, lowercases, and strips a leading @", () => {
+    expect(normalizeAutoJoinDomain("  @RowsOne.com ")).toBe("rowsone.com");
+    expect(normalizeAutoJoinDomain("rowsone.com")).toBe("rowsone.com");
+    expect(normalizeAutoJoinDomain("@@rowsone.com")).toBe("rowsone.com");
+  });
+});
+
+describe("validateAutoJoinDomain", () => {
+  it("accepts real company domains", () => {
+    expect(validateAutoJoinDomain("rowsone.com")).toEqual({
+      ok: true,
+      domain: "rowsone.com",
+    });
+    expect(validateAutoJoinDomain("@rowsone.com")).toEqual({
+      ok: true,
+      domain: "rowsone.com",
+    });
+    expect(validateAutoJoinDomain("team.rowsone.co.uk")).toEqual({
+      ok: true,
+      domain: "team.rowsone.co.uk",
+    });
+  });
+
+  it("rejects invalid shapes", () => {
+    for (const input of [
+      "",
+      "   ",
+      "nodot",
+      "spaces in.com",
+      "rowsone..com",
+      "-rowsone.com",
+      "rowsone.com/path",
+      "https://rowsone.com",
+      "alice@rowsone.com",
+      "rowsone.123",
+    ]) {
+      expect(validateAutoJoinDomain(input)).toEqual({
+        ok: false,
+        error: "INVALID_DOMAIN",
+      });
+    }
+  });
+
+  it("rejects public consumer email domains", () => {
+    for (const domain of ["gmail.com", "Googlemail.com", "@yahoo.com", "outlook.com", "hotmail.com", "icloud.com", "proton.me"]) {
+      expect(validateAutoJoinDomain(domain)).toEqual({
+        ok: false,
+        error: "PUBLIC_EMAIL_DOMAIN",
+      });
+    }
+  });
+
+  it("keeps the denylist in sync with auto-join skips", () => {
+    // Every denylisted domain must be a valid hostname shape, otherwise the
+    // PUBLIC_EMAIL_DOMAIN branch would be unreachable for it.
+    for (const domain of PUBLIC_EMAIL_DOMAINS) {
+      expect(validateAutoJoinDomain(domain).ok).toBe(false);
+    }
+  });
+});
