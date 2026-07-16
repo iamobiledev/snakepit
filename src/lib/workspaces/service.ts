@@ -16,6 +16,7 @@ import {
   canManageWorkspace,
 } from "@/lib/permissions";
 import { sendWorkspaceInvitationEmail } from "@/lib/email";
+import { validateAutoJoinDomain } from "@/lib/workspaces/auto-join";
 import { slugify } from "@/lib/utils";
 import { brand } from "@/config/brand";
 import { logger } from "@/lib/logger";
@@ -196,6 +197,50 @@ export async function removeMember(opts: {
   if (target.role === "owner") throw new Error("CANNOT_REMOVE_OWNER");
 
   await db.delete(workspaceMembers).where(eq(workspaceMembers.id, target.id));
+}
+
+/**
+ * Set (or clear) the verified-email domain whose users automatically join
+ * this workspace as members. Owner/admin only; personal notebooks never
+ * allow domain access.
+ */
+export async function setWorkspaceAutoJoinDomain(opts: {
+  userId: string;
+  workspaceId: string;
+  domain: string | null;
+}) {
+  const membership = await requireMembership(
+    opts.userId,
+    opts.workspaceId,
+    "admin",
+  );
+  if (!canManageWorkspace(membership.role)) throw new Error("FORBIDDEN");
+  const workspace = await getWorkspaceById(opts.workspaceId);
+  if (!workspace) throw new Error("NOT_FOUND");
+  if (workspace.isPersonal) throw new Error("PERSONAL_WORKSPACE");
+
+  let domain: string | null = null;
+  const raw = opts.domain?.trim() ?? "";
+  if (raw) {
+    const result = validateAutoJoinDomain(raw);
+    if (!result.ok) throw new Error(result.error);
+    domain = result.domain;
+  }
+
+  const db = getDb();
+  const [updated] = await db
+    .update(workspaces)
+    .set({ autoJoinDomain: domain, updatedAt: new Date() })
+    .where(eq(workspaces.id, opts.workspaceId))
+    .returning();
+
+  logger.info("workspace.auto_join_domain_updated", {
+    workspaceId: opts.workspaceId,
+    userId: opts.userId,
+    domain: domain ?? "(cleared)",
+  });
+
+  return updated;
 }
 
 export async function renameWorkspace(opts: {
