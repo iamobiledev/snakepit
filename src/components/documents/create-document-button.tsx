@@ -3,9 +3,8 @@
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { BookOpen, Loader2, Plus } from "lucide-react";
-import { toast } from "sonner";
-import { actionCreateDocument } from "@/app/actions";
 import { Button } from "@/components/ui/button";
+import { createDocumentAndNavigate } from "@/components/documents/create-document";
 
 export function CreateDocumentButton({
   workspaceId,
@@ -31,21 +30,9 @@ export function CreateDocumentButton({
       disabled={pending}
       onClick={() => {
         if (pending) return;
-        startTransition(async () => {
-          const formData = new FormData();
-          formData.set("workspaceId", workspaceId);
-          formData.set("title", "Untitled");
-          formData.set("docType", docType);
-          const result = await actionCreateDocument(formData);
-          if (!result.ok) {
-            toast.error(result.error);
-            return;
-          }
-          router.push(
-            `/app/${result.data.workspaceId}/docs/${result.data.id}`,
-          );
-          router.refresh();
-        });
+        startTransition(() =>
+          createDocumentAndNavigate(router, { workspaceId, docType }),
+        );
       }}
     >
       {pending ? (

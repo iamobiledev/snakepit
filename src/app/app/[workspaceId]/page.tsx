@@ -1,14 +1,12 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { BookOpen, Clock, FileText, Lock, Star } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { requireVerifiedSession } from "@/lib/session";
 import {
   getRecentDocuments,
   listWorkspaceDocuments,
   listFavoriteDocuments,
-  listUserWorkspaces,
 } from "@/lib/documents/service";
+import { requireWorkspaceAccess } from "@/lib/workspaces/current";
 import { CreateDocumentButton } from "@/components/documents/create-document-button";
 
 export default async function WorkspacePage({
@@ -17,10 +15,7 @@ export default async function WorkspacePage({
   params: Promise<{ workspaceId: string }>;
 }) {
   const { workspaceId } = await params;
-  const session = await requireVerifiedSession();
-  const workspaces = await listUserWorkspaces(session.user.id);
-  const workspace = workspaces.find((w) => w.id === workspaceId);
-  if (!workspace) notFound();
+  const { session, workspace } = await requireWorkspaceAccess(workspaceId);
 
   const [docs, recent, favorites] = await Promise.all([
     listWorkspaceDocuments(session.user.id, workspaceId),

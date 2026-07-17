@@ -16,10 +16,8 @@ import {
   listConversations,
   chatPostMessage,
 } from "@/lib/slack/client";
-import { documentCard, escapeSlackText } from "@/lib/slack/blocks";
-import { getAppUrl } from "@/env/server";
-import { getDb, user as userTable } from "@/db";
-import { eq } from "drizzle-orm";
+import { escapeSlackText } from "@/lib/slack/blocks";
+import { buildSharedDocumentCard } from "@/lib/slack/document-card";
 import { brand } from "@/config/brand";
 import { revalidatePath } from "next/cache";
 import { logger } from "@/lib/logger";
@@ -137,14 +135,6 @@ export async function actionShareDocToSlack(input: {
       return { ok: false, error: "Slack isn't connected for this workspace." };
     }
 
-    const db = getDb();
-    const [creator] = await db
-      .select({ name: userTable.name })
-      .from(userTable)
-      .where(eq(userTable.id, result.doc.createdById))
-      .limit(1);
-
-    const url = `${getAppUrl()}/app/${result.doc.workspaceId}/docs/${result.doc.id}`;
     const blocks = [];
     const trimmedMessage = parsed.message?.trim();
     if (trimmedMessage) {
@@ -156,17 +146,7 @@ export async function actionShareDocToSlack(input: {
         },
       });
     }
-    blocks.push(
-      ...documentCard({
-        title: result.doc.title,
-        excerptSource: result.doc.plainTextContent,
-        authorName: creator?.name ?? "Unknown",
-        updatedAt: result.doc.updatedAt,
-        url,
-        workspaceName: workspace.name,
-        appName: brand.name,
-      }),
-    );
+    blocks.push(...(await buildSharedDocumentCard(result.doc, workspace.name)));
 
     const post = await chatPostMessage({
       token,
