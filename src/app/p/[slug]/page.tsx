@@ -68,7 +68,7 @@ export default async function PublicDocumentPage({
   return (
     <PublicDocumentView
       title={doc.title}
-      contentJson={await refreshSubpageTitles(doc.contentJson)}
+      contentJson={await refreshSubpageTitles(doc.contentJson, doc.workspaceId)}
       updatedAt={doc.updatedAt.toISOString()}
       creatorName={doc.creatorName}
     />

@@ -66,7 +66,7 @@ export default async function DocumentPage({
       isFavorited(session.user.id, doc.id),
       listUserWorkspaces(session.user.id),
       getSlackStatus(doc.workspaceId),
-      refreshSubpageTitles(doc.contentJson),
+      refreshSubpageTitles(doc.contentJson, doc.workspaceId),
     ]);
   after(() => recordDocumentView(session.user.id, doc.id));
 
