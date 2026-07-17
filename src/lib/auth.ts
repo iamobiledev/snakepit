@@ -20,6 +20,7 @@ import {
   INVITATION_SIGN_UP_HEADER,
 } from "@/lib/invitations";
 import { autoJoinWorkspacesForUser } from "@/lib/workspaces/auto-join";
+import { assertGoogleEmailMatchesHostedDomain } from "@/lib/auth/google-hosted-domain";
 import { logger } from "@/lib/logger";
 
 /**
@@ -65,12 +66,13 @@ export function createAuth() {
       },
     },
     // Google sign-in (optional — enabled by GOOGLE_CLIENT_ID/SECRET).
-    // When `GOOGLE_HOSTED_DOMAIN` is set we pass it as Better Auth's `hd`
-    // option. Better Auth (≥1.6.16) sends that value as Google's account-
-    // picker hint *and* enforces it in `verifyIdToken` / `getUserInfo` via
-    // `isGoogleHostedDomainAllowed` against the verified id-token `hd`
-    // claim. Do not override `getUserInfo` here — a custom callback replaces
-    // that built-in check.
+    // When `GOOGLE_HOSTED_DOMAIN` is set, domain restriction is enforced by:
+    //  1. Passing `hd` as Google's account-picker hint.
+    //  2. Better Auth (≥1.6.16) rejecting tokens whose verified `hd` claim
+    //     does not match (in both verifyIdToken and getUserInfo). Do not
+    //     override `getUserInfo` — a custom callback would replace that check.
+    //  3. `mapProfileToUser` below also rejecting emails outside that domain
+    //     so the restriction is visible and reviewable in this codebase.
     ...(google
       ? {
           socialProviders: {
@@ -79,6 +81,13 @@ export function createAuth() {
               clientSecret: google.clientSecret,
               prompt: "select_account" as const,
               ...(google.hostedDomain ? { hd: google.hostedDomain } : {}),
+              mapProfileToUser: (profile: { email?: string | null }) => {
+                assertGoogleEmailMatchesHostedDomain(
+                  profile,
+                  google.hostedDomain,
+                );
+                return {};
+              },
             },
           },
         }
