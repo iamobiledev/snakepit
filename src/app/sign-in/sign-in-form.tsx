@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { brand } from "@/config/brand";
 import { BrandLogo } from "@/components/brand/brand-logo";
 import {
@@ -15,7 +15,6 @@ import { Label } from "@/components/ui/label";
 import { signIn } from "@/lib/auth-client";
 
 export function SignInForm({ googleEnabled }: { googleEnabled: boolean }) {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const oauthError = searchParams.get("error");
   const [error, setError] = useState<string | null>(null);
@@ -69,8 +68,10 @@ export function SignInForm({ googleEnabled }: { googleEnabled: boolean }) {
               setError(result.error.message ?? "Sign in failed");
               return;
             }
-            router.push("/app");
-            router.refresh();
+            // Hard navigate so post-auth soft push+refresh cannot leave long
+            // tasks on the main thread that inflate INP on the next click
+            // (workspace / Recent card subtitles).
+            window.location.assign("/app");
           });
         }}
       >
