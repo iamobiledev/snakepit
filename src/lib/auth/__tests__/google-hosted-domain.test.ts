@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertGoogleEmailMatchesHostedDomain,
   emailMatchesHostedDomain,
+  hdClaimMatchesHostedDomain,
 } from "@/lib/auth/google-hosted-domain";
 
 describe("emailMatchesHostedDomain", () => {
@@ -35,6 +36,21 @@ describe("emailMatchesHostedDomain", () => {
   });
 });
 
+describe("hdClaimMatchesHostedDomain", () => {
+  it("matches the verified hd claim case-insensitively", () => {
+    expect(hdClaimMatchesHostedDomain("rowsone.com", "rowsone.com")).toBe(true);
+    expect(hdClaimMatchesHostedDomain("RowsOne.COM", "rowsone.com")).toBe(true);
+  });
+
+  it("rejects missing or mismatched claims", () => {
+    expect(hdClaimMatchesHostedDomain(undefined, "rowsone.com")).toBe(false);
+    expect(hdClaimMatchesHostedDomain("", "rowsone.com")).toBe(false);
+    expect(hdClaimMatchesHostedDomain("elsewhere.com", "rowsone.com")).toBe(
+      false,
+    );
+  });
+});
+
 describe("assertGoogleEmailMatchesHostedDomain", () => {
   it("no-ops when hosted domain is unset", () => {
     expect(() =>
@@ -45,16 +61,31 @@ describe("assertGoogleEmailMatchesHostedDomain", () => {
     ).not.toThrow();
   });
 
-  it("throws GOOGLE_HOSTED_DOMAIN_MISMATCH for the wrong domain", () => {
+  it("allows Workspace alias emails when the verified hd claim matches", () => {
+    expect(() =>
+      assertGoogleEmailMatchesHostedDomain(
+        { email: "alice@alias-brand.com", hd: "rowsone.com" },
+        "rowsone.com",
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects a mismatched hd claim even if the email suffix matches", () => {
+    expect(() =>
+      assertGoogleEmailMatchesHostedDomain(
+        { email: "alice@rowsone.com", hd: "elsewhere.com" },
+        "rowsone.com",
+      ),
+    ).toThrow("GOOGLE_HOSTED_DOMAIN_MISMATCH");
+  });
+
+  it("falls back to email suffix when hd is absent", () => {
     expect(() =>
       assertGoogleEmailMatchesHostedDomain(
         { email: "alice@gmail.com" },
         "rowsone.com",
       ),
     ).toThrow("GOOGLE_HOSTED_DOMAIN_MISMATCH");
-  });
-
-  it("allows matching Workspace emails", () => {
     expect(() =>
       assertGoogleEmailMatchesHostedDomain(
         { email: "alice@rowsone.com" },

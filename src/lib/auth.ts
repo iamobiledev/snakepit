@@ -71,8 +71,8 @@ export function createAuth() {
     //  2. Better Auth (≥1.6.16) rejecting tokens whose verified `hd` claim
     //     does not match (in both verifyIdToken and getUserInfo). Do not
     //     override `getUserInfo` — a custom callback would replace that check.
-    //  3. `mapProfileToUser` below also rejecting emails outside that domain
-    //     so the restriction is visible and reviewable in this codebase.
+    //  3. `mapProfileToUser` below re-checks the verified `hd` claim (not the
+    //     email suffix — Workspace alias emails can differ from `hd`).
     ...(google
       ? {
           socialProviders: {
@@ -81,7 +81,10 @@ export function createAuth() {
               clientSecret: google.clientSecret,
               prompt: "select_account" as const,
               ...(google.hostedDomain ? { hd: google.hostedDomain } : {}),
-              mapProfileToUser: (profile: { email?: string | null }) => {
+              mapProfileToUser: (profile: {
+                email?: string | null;
+                hd?: string | null;
+              }) => {
                 assertGoogleEmailMatchesHostedDomain(
                   profile,
                   google.hostedDomain,

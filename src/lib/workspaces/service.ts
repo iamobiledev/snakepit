@@ -25,6 +25,7 @@ import {
 import { slugify } from "@/lib/utils";
 import { brand } from "@/config/brand";
 import { logger } from "@/lib/logger";
+import { postgresErrorCode } from "@/lib/db/errors";
 
 export async function createWorkspace(opts: {
   userId: string;
@@ -265,11 +266,21 @@ export async function setWorkspaceAutoJoinDomain(opts: {
     if (claimed) throw new Error("DOMAIN_ALREADY_CLAIMED");
   }
 
-  const [updated] = await db
-    .update(workspaces)
-    .set({ autoJoinDomain: domain, updatedAt: new Date() })
-    .where(eq(workspaces.id, opts.workspaceId))
-    .returning();
+  let updated;
+  try {
+    [updated] = await db
+      .update(workspaces)
+      .set({ autoJoinDomain: domain, updatedAt: new Date() })
+      .where(eq(workspaces.id, opts.workspaceId))
+      .returning();
+  } catch (error) {
+    // Concurrent claimants can pass the pre-check; the unique index still
+    // rejects the loser — surface the same friendly error as the pre-check.
+    if (domain && postgresErrorCode(error) === "23505") {
+      throw new Error("DOMAIN_ALREADY_CLAIMED");
+    }
+    throw error;
+  }
 
   logger.info("workspace.auto_join_domain_updated", {
     workspaceId: opts.workspaceId,
