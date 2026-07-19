@@ -7,6 +7,11 @@ import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
 import { migrate as migratePg } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 import { shouldUsePgDriver } from "../src/db/create-db";
+import { redactDatabaseUrls } from "../src/db/schema-readiness";
+import {
+  inspectConfiguredSchemaTargets,
+  schemaDiagnosticMessage,
+} from "./schema-readiness";
 
 /**
  * Production-safe migration runner.
@@ -25,21 +30,38 @@ async function main() {
     );
   }
 
-  console.log("Running migrations…");
+  console.log("Applying database migrations to the migration target…");
   if (shouldUsePgDriver(url)) {
     const pool = new Pool({ connectionString: url });
-    const db = drizzlePg(pool);
-    await migratePg(db, { migrationsFolder: "./drizzle" });
-    await pool.end();
+    try {
+      const db = drizzlePg(pool);
+      await migratePg(db, { migrationsFolder: "./drizzle" });
+    } finally {
+      await pool.end();
+    }
   } else {
     const sql = neon(url);
     const db = drizzleNeon(sql);
     await migrateNeon(db, { migrationsFolder: "./drizzle" });
   }
-  console.log("Migrations complete.");
+
+  console.log(
+    "DDL migrations applied. Verifying every configured database target…",
+  );
+  const report = await inspectConfiguredSchemaTargets(process.env);
+  console.log(JSON.stringify(report, null, 2));
+  if (!report.ready) {
+    throw new Error(schemaDiagnosticMessage(report.diagnostic));
+  }
+  console.log("Migrations complete; runtime schema verification passed.");
 }
 
 main().catch((err) => {
-  console.error(err);
+  const configuredUrls = [
+    process.env.DATABASE_URL,
+    process.env.DATABASE_URL_UNPOOLED,
+  ].filter((url): url is string => Boolean(url));
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(redactDatabaseUrls(message, configuredUrls));
   process.exit(1);
 });

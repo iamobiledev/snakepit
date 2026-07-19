@@ -48,10 +48,7 @@ export type SchemaReadinessReport = {
   targets: SchemaTargetResult[];
 };
 
-type DatabaseEnvironment = {
-  DATABASE_URL?: string;
-  DATABASE_URL_UNPOOLED?: string;
-};
+type DatabaseEnvironment = Readonly<Record<string, string | undefined>>;
 
 /**
  * Resolve every configured database endpoint that must expose the schema.
