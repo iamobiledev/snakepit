@@ -1,9 +1,5 @@
-import { notFound } from "next/navigation";
-import { requireVerifiedSession } from "@/lib/session";
-import {
-  listTrashedDocuments,
-  listUserWorkspaces,
-} from "@/lib/documents/service";
+import { listTrashedDocuments } from "@/lib/documents/service";
+import { requireWorkspaceAccess } from "@/lib/workspaces/current";
 import { TrashList } from "./trash-list";
 
 export const metadata = { title: "Trash" };
@@ -14,10 +10,7 @@ export default async function TrashPage({
   params: Promise<{ workspaceId: string }>;
 }) {
   const { workspaceId } = await params;
-  const session = await requireVerifiedSession();
-  const workspaces = await listUserWorkspaces(session.user.id);
-  const workspace = workspaces.find((w) => w.id === workspaceId);
-  if (!workspace) notFound();
+  const { session, workspace } = await requireWorkspaceAccess(workspaceId);
 
   const trashed = await listTrashedDocuments(session.user.id, workspaceId);
 

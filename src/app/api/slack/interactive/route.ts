@@ -6,13 +6,10 @@ import {
   chatPostMessage,
   respondViaResponseUrl,
 } from "@/lib/slack/client";
-import { documentCard } from "@/lib/slack/blocks";
+import { buildSharedDocumentCard } from "@/lib/slack/document-card";
 import { getDocumentWithAccess } from "@/lib/documents/service";
 import { canView } from "@/lib/documents/access";
 import { getWorkspaceById } from "@/lib/workspaces/service";
-import { getDb, user as userTable } from "@/db";
-import { eq } from "drizzle-orm";
-import { getAppUrl } from "@/env/server";
 import { brand } from "@/config/brand";
 import { logger } from "@/lib/logger";
 
@@ -101,27 +98,11 @@ export async function POST(request: Request) {
         return;
       }
 
-      const db = getDb();
-      const [creator] = await db
-        .select({ name: userTable.name })
-        .from(userTable)
-        .where(eq(userTable.id, result.doc.createdById))
-        .limit(1);
-
-      const url = `${getAppUrl()}/app/${result.doc.workspaceId}/docs/${result.doc.id}`;
       const post = await chatPostMessage({
         token: connections[0].botToken(),
         channel: channelId,
         text: `${result.doc.title} — shared from ${brand.name}`,
-        blocks: documentCard({
-          title: result.doc.title,
-          excerptSource: result.doc.plainTextContent,
-          authorName: creator?.name ?? "Unknown",
-          updatedAt: result.doc.updatedAt,
-          url,
-          workspaceName: workspace?.name,
-          appName: brand.name,
-        }),
+        blocks: await buildSharedDocumentCard(result.doc, workspace?.name),
       });
 
       if (!post.ok) {

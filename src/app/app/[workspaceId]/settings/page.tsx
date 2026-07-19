@@ -1,7 +1,5 @@
-import { notFound } from "next/navigation";
 import { AlertTriangle, BookLock } from "lucide-react";
-import { requireVerifiedSession } from "@/lib/session";
-import { listUserWorkspaces } from "@/lib/documents/service";
+import { requireWorkspaceAccess } from "@/lib/workspaces/current";
 import {
   listWorkspaceMembers,
   listPendingInvitations,
@@ -27,10 +25,7 @@ export default async function WorkspaceSettingsPage({
   params: Promise<{ workspaceId: string }>;
 }) {
   const { workspaceId } = await params;
-  const session = await requireVerifiedSession();
-  const workspaces = await listUserWorkspaces(session.user.id);
-  const workspace = workspaces.find((w) => w.id === workspaceId);
-  if (!workspace) notFound();
+  const { session, workspace } = await requireWorkspaceAccess(workspaceId);
 
   const isAdmin = workspace.role === "owner" || workspace.role === "admin";
   const emailDelivery = getEmailDeliveryStatus();

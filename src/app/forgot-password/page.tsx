@@ -1,9 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useState, useTransition } from "react";
-import { brand } from "@/config/brand";
-import { BrandLogo } from "@/components/brand/brand-logo";
+import { AuthShell } from "@/components/auth/auth-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,18 +13,7 @@ export default function ForgotPasswordPage() {
   const [pending, startTransition] = useTransition();
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-6 py-16">
-      <Link
-        href="/"
-        aria-label={`${brand.name} home`}
-        className="mb-8 w-fit"
-      >
-        <BrandLogo
-          markClassName="h-9 w-9"
-          wordmarkClassName="text-2xl"
-        />
-      </Link>
-      <h1 className="text-2xl font-semibold tracking-tight">Reset password</h1>
+    <AuthShell title="Reset password">
       <p className="mt-2 text-sm text-[var(--muted-foreground)]">
         We&apos;ll email you a reset link.
       </p>
@@ -60,6 +47,6 @@ export default function ForgotPasswordPage() {
           {pending ? "Sending…" : "Send reset link"}
         </Button>
       </form>
-    </main>
+    </AuthShell>
   );
 }

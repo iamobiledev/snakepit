@@ -1,10 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { brand } from "@/config/brand";
-import { BrandLogo } from "@/components/brand/brand-logo";
+import { AuthShell } from "@/components/auth/auth-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -57,21 +55,10 @@ function ResetForm() {
 
 export default function ResetPasswordPage() {
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-6 py-16">
-      <Link
-        href="/"
-        aria-label={`${brand.name} home`}
-        className="mb-8 w-fit"
-      >
-        <BrandLogo
-          markClassName="h-9 w-9"
-          wordmarkClassName="text-2xl"
-        />
-      </Link>
-      <h1 className="text-2xl font-semibold tracking-tight">Choose a new password</h1>
+    <AuthShell title="Choose a new password">
       <Suspense fallback={<p className="mt-8 text-sm">Loading…</p>}>
         <ResetForm />
       </Suspense>
-    </main>
+    </AuthShell>
   );
 }

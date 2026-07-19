@@ -48,10 +48,10 @@ import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/comp
 import { signOut } from "@/lib/auth-client";
 import { useTheme, type ThemePreference } from "@/components/theme/theme";
 import {
-  actionCreateDocument,
   actionListWorkspaceTree,
   actionMoveDocument,
 } from "@/app/actions";
+import { createDocumentAndNavigate } from "@/components/documents/create-document";
 import type { DocumentTreeNode, WorkspaceSummary } from "@/lib/documents/types";
 import { DROP_TARGET_CLASS, useRootDropTarget } from "./tree-dnd";
 
@@ -131,22 +131,13 @@ export function AppShell({
       targetWorkspaceId: string = workspace.id,
     ) => {
       if (creating) return;
-      startCreating(async () => {
-        const formData = new FormData();
-        formData.set("workspaceId", targetWorkspaceId);
-        if (parentId) formData.set("parentId", parentId);
-        formData.set("title", "Untitled");
-        formData.set("docType", docType);
-        const result = await actionCreateDocument(formData);
-        if (!result.ok) {
-          toast.error(result.error);
-          return;
-        }
-        router.push(
-          `/app/${result.data.workspaceId}/docs/${result.data.id}`,
-        );
-        router.refresh();
-      });
+      startCreating(() =>
+        createDocumentAndNavigate(router, {
+          workspaceId: targetWorkspaceId,
+          parentId,
+          docType,
+        }),
+      );
     },
     [creating, router, workspace.id],
   );

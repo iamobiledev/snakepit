@@ -50,6 +50,33 @@ type DocRow = {
   isPersonal: boolean | null;
 };
 
+/**
+ * Full document card when the viewer may read the doc, otherwise a neutral
+ * "open in app" card that never leaks title or content.
+ */
+function unfurlCard(
+  doc: {
+    title: string;
+    plainTextContent: string;
+    creatorName: string | null;
+    updatedAt: Date;
+    workspaceName: string | null;
+  } | null,
+  url: string,
+): SlackBlock[] {
+  return doc
+    ? documentCard({
+        title: doc.title,
+        excerptSource: doc.plainTextContent,
+        authorName: doc.creatorName ?? "Unknown",
+        updatedAt: doc.updatedAt,
+        url,
+        workspaceName: doc.workspaceName ?? undefined,
+        appName: brand.name,
+      })
+    : minimalCard({ url, appName: brand.name });
+}
+
 async function loadDoc(documentId: string): Promise<DocRow | null> {
   const db = getDb();
   const [row] = await db
@@ -100,19 +127,7 @@ export async function processLinkShared(teamId: string, event: LinkSharedEvent) 
       if (link.kind === "public") {
         // Published pages are readable by anyone — full card.
         const doc = await getPublicDocument(link.slug);
-        unfurls[link.url] = {
-          blocks: doc
-            ? documentCard({
-                title: doc.title,
-                excerptSource: doc.plainTextContent,
-                authorName: doc.creatorName ?? "Unknown",
-                updatedAt: doc.updatedAt,
-                url: link.url,
-                workspaceName: doc.workspaceName ?? undefined,
-                appName: brand.name,
-              })
-            : minimalCard({ url: link.url, appName: brand.name }),
-        };
+        unfurls[link.url] = { blocks: unfurlCard(doc, link.url) };
         continue;
       }
 
@@ -145,17 +160,7 @@ export async function processLinkShared(teamId: string, event: LinkSharedEvent) 
       const full = decision === "full" && doc && !doc.isPersonal;
 
       unfurls[link.url] = {
-        blocks: full
-          ? documentCard({
-              title: doc.title,
-              excerptSource: doc.plainTextContent,
-              authorName: doc.creatorName ?? "Unknown",
-              updatedAt: doc.updatedAt,
-              url: link.url,
-              workspaceName: doc.workspaceName ?? undefined,
-              appName: brand.name,
-            })
-          : minimalCard({ url: link.url, appName: brand.name }),
+        blocks: unfurlCard(full ? doc : null, link.url),
       };
     }
 

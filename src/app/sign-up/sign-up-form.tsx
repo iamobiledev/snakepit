@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { brand } from "@/config/brand";
-import { BrandLogo } from "@/components/brand/brand-logo";
+import { AuthShell } from "@/components/auth/auth-shell";
 import {
   AuthDivider,
   GoogleSignInButton,
@@ -21,18 +21,7 @@ export function SignUpForm({ googleEnabled }: { googleEnabled: boolean }) {
   const [pending, startTransition] = useTransition();
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-6 py-16">
-      <Link
-        href="/"
-        aria-label={`${brand.name} home`}
-        className="mb-8 w-fit"
-      >
-        <BrandLogo
-          markClassName="h-9 w-9"
-          wordmarkClassName="text-2xl"
-        />
-      </Link>
-      <h1 className="text-2xl font-semibold tracking-tight">Create your account</h1>
+    <AuthShell title="Create your account">
       <p className="mt-2 text-sm text-[var(--muted-foreground)]">
         {brand.tagline}
       </p>
@@ -107,6 +96,6 @@ export function SignUpForm({ googleEnabled }: { googleEnabled: boolean }) {
           Sign in
         </Link>
       </p>
-    </main>
+    </AuthShell>
   );
 }
