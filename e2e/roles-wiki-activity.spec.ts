@@ -55,6 +55,25 @@ test.describe.serial("wikis, roles, activity, invitations", () => {
     const teammateId = psql(
       `SELECT id FROM \"user\" WHERE email='${OUTSIDER_EMAIL}'`,
     );
+    const demoId = psql(
+      `SELECT id FROM \"user\" WHERE email='${DEMO_EMAIL}'`,
+    );
+    psql(
+      `BEGIN;
+       UPDATE workspace_members
+          SET role='admin'
+        WHERE workspace_id='${wsId}'
+          AND role='owner'
+          AND user_id<>'${demoId}';
+       UPDATE workspace_members
+          SET role='owner'
+        WHERE workspace_id='${wsId}'
+          AND user_id='${demoId}';
+       UPDATE workspaces
+          SET created_by_id='${demoId}'
+        WHERE id='${wsId}';
+       COMMIT;`,
+    );
     psql(
       `INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES ('e2em-${runId}', '${wsId}', '${teammateId}', 'member') ON CONFLICT (workspace_id, user_id) DO UPDATE SET role='member'`,
     );
@@ -189,5 +208,89 @@ test.describe.serial("wikis, roles, activity, invitations", () => {
     ).toBe("f");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "true");
+  });
+
+  test("owner transfers workspace ownership and the new owner transfers it back", async ({
+    page,
+    browser,
+  }) => {
+    const demoId = psql(
+      `SELECT id FROM \"user\" WHERE email='${DEMO_EMAIL}'`,
+    );
+    const teammateId = psql(
+      `SELECT id FROM \"user\" WHERE email='${OUTSIDER_EMAIL}'`,
+    );
+
+    await signIn(page, DEMO_EMAIL);
+    await page.goto(`/app/${wsId}/settings`);
+    const teammateRow = page
+      .locator("li")
+      .filter({ hasText: OUTSIDER_EMAIL })
+      .first();
+    await teammateRow.getByRole("button", { name: "Make owner" }).click();
+    await expect(
+      page.getByRole("heading", {
+        name: "Transfer workspace ownership?",
+      }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Transfer ownership" }).click();
+    await expect(
+      page.getByText(/is now the workspace owner/i),
+    ).toBeVisible({ timeout: 15_000 });
+
+    expect(
+      psql(
+        `SELECT role FROM workspace_members WHERE workspace_id='${wsId}' AND user_id='${demoId}'`,
+      ),
+    ).toBe("admin");
+    expect(
+      psql(
+        `SELECT role FROM workspace_members WHERE workspace_id='${wsId}' AND user_id='${teammateId}'`,
+      ),
+    ).toBe("owner");
+    expect(
+      psql(
+        `SELECT count(*) FROM workspace_members WHERE workspace_id='${wsId}' AND role='owner'`,
+      ),
+    ).toBe("1");
+    expect(
+      psql(`SELECT created_by_id FROM workspaces WHERE id='${wsId}'`),
+    ).toBe(teammateId);
+
+    const teammateContext = await browser.newContext();
+    const teammatePage = await teammateContext.newPage();
+    await signIn(teammatePage, OUTSIDER_EMAIL);
+    await teammatePage.goto(`/app/${wsId}/settings`);
+    const demoRow = teammatePage
+      .locator("li")
+      .filter({ hasText: DEMO_EMAIL })
+      .first();
+    await demoRow.getByRole("button", { name: "Make owner" }).click();
+    await teammatePage
+      .getByRole("button", { name: "Transfer ownership" })
+      .click();
+    await expect(
+      teammatePage.getByText(/is now the workspace owner/i),
+    ).toBeVisible({ timeout: 15_000 });
+    await teammateContext.close();
+
+    expect(
+      psql(
+        `SELECT role FROM workspace_members WHERE workspace_id='${wsId}' AND user_id='${demoId}'`,
+      ),
+    ).toBe("owner");
+    expect(
+      psql(
+        `SELECT role FROM workspace_members WHERE workspace_id='${wsId}' AND user_id='${teammateId}'`,
+      ),
+    ).toBe("admin");
+    expect(
+      psql(
+        `SELECT count(*) FROM workspace_members WHERE workspace_id='${wsId}' AND role='owner'`,
+      ),
+    ).toBe("1");
+    expect(
+      psql(`SELECT created_by_id FROM workspaces WHERE id='${wsId}'`),
+    ).toBe(demoId);
   });
 });
