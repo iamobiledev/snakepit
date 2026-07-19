@@ -762,9 +762,16 @@ function patchSubpageTitles(
 /**
  * Refresh the `title` attribute of sub-page blocks in TipTap JSON so that
  * renamed child pages stay in sync wherever the parent document is rendered.
+ *
+ * Titles are resolved only for sub-pages in `workspaceId` (the containing
+ * document's workspace). Sub-pages always live in the same workspace as their
+ * parent, so scoping here prevents a crafted `documentId` from leaking the
+ * title of an arbitrary document — including on the unauthenticated public
+ * page and across workspaces.
  */
 export async function refreshSubpageTitles(
   contentJson: Record<string, unknown>,
+  workspaceId: string,
 ): Promise<Record<string, unknown>> {
   const ids = new Set<string>();
   collectSubpageIds(contentJson, ids);
@@ -774,7 +781,12 @@ export async function refreshSubpageTitles(
   const rows = await db
     .select({ id: documents.id, title: documents.title })
     .from(documents)
-    .where(inArray(documents.id, [...ids]));
+    .where(
+      and(
+        inArray(documents.id, [...ids]),
+        eq(documents.workspaceId, workspaceId),
+      ),
+    );
   const titles = new Map(rows.map((row) => [row.id, row.title]));
   return patchSubpageTitles(contentJson, titles) as Record<string, unknown>;
 }
@@ -1466,6 +1478,7 @@ export async function getPublicDocument(slug: string) {
   const [row] = await db
     .select({
       id: documents.id,
+      workspaceId: documents.workspaceId,
       title: documents.title,
       contentJson: documents.contentJson,
       plainTextContent: documents.plainTextContent,
