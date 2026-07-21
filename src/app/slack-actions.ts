@@ -21,8 +21,8 @@ import { getAppUrl } from "@/env/server";
 import { getDb, user as userTable } from "@/db";
 import { eq } from "drizzle-orm";
 import { brand } from "@/config/brand";
-import { revalidatePath } from "next/cache";
 import { logger } from "@/lib/logger";
+import { revalidateWorkspaceRoute } from "@/lib/workspaces/revalidation";
 
 export type SlackActionResult<T = undefined> =
   | { ok: true; data: T }
@@ -38,7 +38,7 @@ export async function actionDisconnectSlack(input: {
     const parsed = z.object({ workspaceId: z.string().min(1) }).parse(input);
     await requireMembership(session.user.id, parsed.workspaceId, "admin");
     await deleteConnection(parsed.workspaceId);
-    revalidatePath(`/app/${parsed.workspaceId}/settings`);
+    await revalidateWorkspaceRoute(parsed.workspaceId, "/settings");
     return { ok: true, data: undefined };
   } catch {
     return { ok: false, error: "Couldn't disconnect Slack. Please try again." };
@@ -52,7 +52,7 @@ export async function actionUnlinkSlackIdentity(input: {
   try {
     await unlinkSlackUser({ userId: session.user.id });
     if (input.workspaceId) {
-      revalidatePath(`/app/${input.workspaceId}/settings`);
+      await revalidateWorkspaceRoute(input.workspaceId, "/settings");
     }
     return { ok: true, data: undefined };
   } catch {

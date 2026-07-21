@@ -1,0 +1,71 @@
+import { describe, expect, it } from "vitest";
+import {
+  findWorkspaceByRouteKey,
+  workspaceDocumentPath,
+  workspaceDocumentPathForId,
+  workspacePath,
+  workspacePathForId,
+  workspaceRoutePaths,
+  withSearchParams,
+} from "@/lib/workspaces/paths";
+
+const workspaces = [
+  { id: "opaque-id", slug: "rowsone" },
+  { id: "personal-id", slug: "personal-notebook" },
+];
+
+describe("workspace URL paths", () => {
+  it("uses the readable slug for workspace and document URLs", () => {
+    expect(workspacePath(workspaces[0])).toBe("/app/rowsone");
+    expect(workspaceDocumentPath(workspaces[0], "doc-id")).toBe(
+      "/app/rowsone/docs/doc-id",
+    );
+  });
+
+  it("resolves both canonical slugs and legacy IDs", () => {
+    expect(findWorkspaceByRouteKey(workspaces, "rowsone")).toBe(workspaces[0]);
+    expect(findWorkspaceByRouteKey(workspaces, "opaque-id")).toBe(
+      workspaces[0],
+    );
+    expect(findWorkspaceByRouteKey(workspaces, "missing")).toBeUndefined();
+  });
+
+  it("maps related records from workspace IDs to slug URLs", () => {
+    expect(workspacePathForId(workspaces, "personal-id")).toBe(
+      "/app/personal-notebook",
+    );
+    expect(
+      workspaceDocumentPathForId(workspaces, "opaque-id", "doc-id"),
+    ).toBe("/app/rowsone/docs/doc-id");
+  });
+
+  it("keeps ID URLs as a compatibility fallback for unknown workspaces", () => {
+    expect(workspacePathForId(workspaces, "shared-id")).toBe("/app/shared-id");
+    expect(
+      workspaceDocumentPathForId(workspaces, "shared-id", "doc-id"),
+    ).toBe("/app/shared-id/docs/doc-id");
+  });
+
+  it("returns both canonical and legacy paths for cache invalidation", () => {
+    expect(workspaceRoutePaths(workspaces[0])).toEqual([
+      "/app/opaque-id",
+      "/app/rowsone",
+    ]);
+    expect(workspaceRoutePaths(workspaces[0], "/settings")).toEqual([
+      "/app/opaque-id/settings",
+      "/app/rowsone/settings",
+    ]);
+  });
+
+  it("preserves scalar and repeated query parameters across redirects", () => {
+    expect(
+      withSearchParams("/app/rowsone/settings", {
+        slack: "connected",
+        channel: ["general", "support"],
+        omitted: undefined,
+      }),
+    ).toBe(
+      "/app/rowsone/settings?slack=connected&channel=general&channel=support",
+    );
+  });
+});

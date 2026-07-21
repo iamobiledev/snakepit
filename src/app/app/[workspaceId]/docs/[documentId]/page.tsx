@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { after } from "next/server";
 import Link from "next/link";
 import { FileQuestion, Trash2 } from "lucide-react";
@@ -25,13 +25,16 @@ import { RequestAccess } from "@/components/documents/request-access";
 import { RestoreBanner } from "@/components/documents/restore-banner";
 import { StaticDocument } from "@/components/documents/static-document";
 import { Button } from "@/components/ui/button";
+import {
+  workspaceDocumentPath,
+} from "@/lib/workspaces/paths";
 
 export default async function DocumentPage({
   params,
 }: {
   params: Promise<{ workspaceId: string; documentId: string }>;
 }) {
-  const { workspaceId, documentId } = await params;
+  const { workspaceId: workspaceRouteKey, documentId } = await params;
   const session = await requireVerifiedSession();
   const result = await getDocumentWithAccess(session.user.id, documentId);
   const emailDelivery = getEmailDeliveryStatus().delivery;
@@ -58,7 +61,6 @@ export default async function DocumentPage({
   }
 
   const { doc } = result;
-  if (doc.workspaceId !== workspaceId) notFound();
 
   const [ancestors, favorited, workspaces, slack, contentJson] =
     await Promise.all([
@@ -68,7 +70,6 @@ export default async function DocumentPage({
       getSlackStatus(doc.workspaceId),
       refreshSubpageTitles(doc.contentJson),
     ]);
-  after(() => recordDocumentView(session.user.id, doc.id));
 
   // The viewer may not be a workspace member (page shared directly with
   // them) — fall back to loading the workspace and treating them as a guest.
@@ -76,6 +77,7 @@ export default async function DocumentPage({
   const isWorkspaceMember = Boolean(membership);
   let workspace: {
     id: string;
+    slug: string;
     name: string;
     isPersonal: boolean;
     role: "owner" | "admin" | "member" | "guest";
@@ -83,6 +85,7 @@ export default async function DocumentPage({
   if (membership) {
     workspace = {
       id: membership.id,
+      slug: membership.slug,
       name: membership.name,
       isPersonal: membership.isPersonal,
       role: membership.role,
@@ -92,11 +95,23 @@ export default async function DocumentPage({
     if (!shared) notFound();
     workspace = {
       id: shared.id,
+      slug: shared.slug,
       name: shared.name,
       isPersonal: shared.isPersonal,
       role: "guest",
     };
   }
+
+  if (
+    workspaceRouteKey !== workspace.id &&
+    workspaceRouteKey !== workspace.slug
+  ) {
+    notFound();
+  }
+  if (workspaceRouteKey !== workspace.slug) {
+    permanentRedirect(workspaceDocumentPath(workspace, doc.id));
+  }
+  after(() => recordDocumentView(session.user.id, doc.id));
 
   const editable = accessCanEdit(result.access);
   const trashed = doc.archivedAt !== null;
@@ -112,7 +127,7 @@ export default async function DocumentPage({
   return (
     <div className="mx-auto max-w-3xl">
       {trashed ? (
-        <RestoreBanner documentId={doc.id} workspaceId={doc.workspaceId} />
+        <RestoreBanner documentId={doc.id} workspaceSlug={workspace.slug} />
       ) : (
         <DocHeader
           doc={{
@@ -128,6 +143,7 @@ export default async function DocumentPage({
           canManageLock={manageLock}
           workspace={{
             id: workspace.id,
+            slug: workspace.slug,
             name: workspace.name,
             isPersonal: workspace.isPersonal,
             role: workspace.role,

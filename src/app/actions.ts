@@ -55,6 +55,7 @@ import { getDb, workspaceMembers, user as userTable } from "@/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import { measureServerOperation } from "@/lib/performance";
+import { revalidateWorkspaceRoute } from "@/lib/workspaces/revalidation";
 
 /* -------------------------------------------------------------------------- */
 /* Result helpers                                                              */
@@ -142,7 +143,7 @@ export async function actionRenameWorkspace(input: {
       .object({ workspaceId: z.string().min(1), name: z.string().min(1).max(100) })
       .parse(input);
     await renameWorkspace({ userId: session.user.id, ...parsed });
-    revalidatePath(`/app/${parsed.workspaceId}`);
+    await revalidateWorkspaceRoute(parsed.workspaceId);
     return undefined;
   });
 }
@@ -164,7 +165,7 @@ export async function actionSetWorkspaceAutoJoinDomain(input: {
       workspaceId: parsed.workspaceId,
       domain: parsed.domain,
     });
-    revalidatePath(`/app/${parsed.workspaceId}/settings`);
+    await revalidateWorkspaceRoute(parsed.workspaceId, "/settings");
     return undefined;
   });
 }
@@ -184,7 +185,7 @@ export async function actionInviteMember(input: {
       })
       .parse(input);
     await inviteToWorkspace({ userId: session.user.id, ...parsed });
-    revalidatePath(`/app/${parsed.workspaceId}/settings`);
+    await revalidateWorkspaceRoute(parsed.workspaceId, "/settings");
     return undefined;
   });
 }
@@ -204,7 +205,7 @@ export async function actionUpdateMemberRole(input: {
       })
       .parse(input);
     await updateMemberRole({ userId: session.user.id, ...parsed });
-    revalidatePath(`/app/${parsed.workspaceId}/settings`);
+    await revalidateWorkspaceRoute(parsed.workspaceId, "/settings");
     return undefined;
   });
 }
@@ -225,7 +226,7 @@ export async function actionTransferWorkspaceOwnership(input: {
       userId: session.user.id,
       ...parsed,
     });
-    revalidatePath(`/app/${parsed.workspaceId}/settings`);
+    await revalidateWorkspaceRoute(parsed.workspaceId, "/settings");
     return undefined;
   });
 }
@@ -240,7 +241,7 @@ export async function actionRemoveMember(input: {
       .object({ workspaceId: z.string().min(1), targetUserId: z.string().min(1) })
       .parse(input);
     await removeMember({ userId: session.user.id, ...parsed });
-    revalidatePath(`/app/${parsed.workspaceId}/settings`);
+    await revalidateWorkspaceRoute(parsed.workspaceId, "/settings");
     return undefined;
   });
 }
@@ -255,7 +256,7 @@ export async function actionResendInvitation(input: {
       .object({ workspaceId: z.string().min(1), invitationId: z.string().min(1) })
       .parse(input);
     await resendInvitation({ userId: session.user.id, ...parsed });
-    revalidatePath(`/app/${parsed.workspaceId}/settings`);
+    await revalidateWorkspaceRoute(parsed.workspaceId, "/settings");
     return undefined;
   });
 }
@@ -285,7 +286,7 @@ export async function actionRevokeInvitation(input: {
       .object({ workspaceId: z.string().min(1), invitationId: z.string().min(1) })
       .parse(input);
     await revokeInvitation({ userId: session.user.id, ...parsed });
-    revalidatePath(`/app/${parsed.workspaceId}/settings`);
+    await revalidateWorkspaceRoute(parsed.workspaceId, "/settings");
     return undefined;
   });
 }
@@ -335,7 +336,7 @@ export async function actionCreateDocument(
       userId: session.user.id,
       ...parsed,
     });
-    revalidatePath(`/app/${parsed.workspaceId}`, "layout");
+    await revalidateWorkspaceRoute(parsed.workspaceId, "", "layout");
     return {
       id: doc.id,
       workspaceId: doc.workspaceId,
@@ -383,7 +384,10 @@ export async function actionSetDocumentLock(input: {
       .object({ documentId: z.string().min(1), locked: z.boolean() })
       .parse(input);
     const doc = await setDocumentLock({ userId: session.user.id, ...parsed });
-    revalidatePath(`/app/${doc.workspaceId}/docs/${doc.id}`);
+    await revalidateWorkspaceRoute(
+      doc.workspaceId,
+      `/docs/${doc.id}`,
+    );
     return { locked: doc.lockedAt !== null };
   });
 }
@@ -484,7 +488,7 @@ export async function actionRenameDocument(input: {
       .object({ documentId: z.string().min(1), title: z.string().min(1).max(500) })
       .parse(input);
     const doc = await renameDocument({ userId: session.user.id, ...parsed });
-    revalidatePath(`/app/${doc.workspaceId}`);
+    await revalidateWorkspaceRoute(doc.workspaceId);
     return undefined;
   });
 }
@@ -499,7 +503,10 @@ export async function actionPublishDocument(input: {
       .object({ documentId: z.string().min(1), publish: z.boolean() })
       .parse(input);
     const doc = await publishDocument({ userId: session.user.id, ...parsed });
-    revalidatePath(`/app/${doc.workspaceId}/docs/${doc.id}`);
+    await revalidateWorkspaceRoute(
+      doc.workspaceId,
+      `/docs/${doc.id}`,
+    );
     return { publicSlug: doc.publicSlug, visibility: doc.visibility };
   });
 }
@@ -514,7 +521,7 @@ export async function actionTrashDocument(input: {
       userId: session.user.id,
       documentId: parsed.documentId,
     });
-    revalidatePath(`/app/${doc.workspaceId}`);
+    await revalidateWorkspaceRoute(doc.workspaceId);
     return { workspaceId: doc.workspaceId };
   });
 }
@@ -529,7 +536,7 @@ export async function actionRestoreDocument(input: {
       userId: session.user.id,
       documentId: parsed.documentId,
     });
-    revalidatePath(`/app/${doc.workspaceId}`);
+    await revalidateWorkspaceRoute(doc.workspaceId);
     return { workspaceId: doc.workspaceId };
   });
 }
@@ -557,7 +564,7 @@ export async function actionMoveDocument(input: {
       })
       .parse(input);
     const doc = await moveDocument({ userId: session.user.id, ...parsed });
-    revalidatePath(`/app/${doc.workspaceId}`);
+    await revalidateWorkspaceRoute(doc.workspaceId);
     return undefined;
   });
 }
@@ -639,7 +646,10 @@ export async function actionRestoreDocumentVersion(input: {
       userId: session.user.id,
       ...parsed,
     });
-    revalidatePath(`/app/${doc.workspaceId}/docs/${doc.id}`);
+    await revalidateWorkspaceRoute(
+      doc.workspaceId,
+      `/docs/${doc.id}`,
+    );
     return undefined;
   });
 }
@@ -748,7 +758,7 @@ export async function actionSetGeneralAccess(input: {
       })
       .parse(input);
     const doc = await setGeneralAccess({ userId: session.user.id, ...parsed });
-    revalidatePath(`/app/${doc.workspaceId}`, "layout");
+    await revalidateWorkspaceRoute(doc.workspaceId, "", "layout");
     return { access: parsed.access };
   });
 }

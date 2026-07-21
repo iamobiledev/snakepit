@@ -5,9 +5,18 @@ import { verifyStateToken } from "@/lib/slack/state";
 import { oauthAccess } from "@/lib/slack/client";
 import { saveConnection } from "@/lib/slack/service";
 import { logger } from "@/lib/logger";
+import { getWorkspaceById } from "@/lib/workspaces/service";
+import { workspacePath } from "@/lib/workspaces/paths";
 
-function settingsRedirect(workspaceId: string, params: Record<string, string>) {
-  const url = new URL(`/app/${workspaceId}/settings`, getAppUrl());
+async function settingsRedirect(
+  workspaceId: string,
+  params: Record<string, string>,
+) {
+  const workspace = await getWorkspaceById(workspaceId);
+  const path = workspace
+    ? `${workspacePath(workspace)}/settings`
+    : `/app/${workspaceId}/settings`;
+  const url = new URL(path, getAppUrl());
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }

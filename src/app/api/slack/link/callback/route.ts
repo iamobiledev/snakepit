@@ -5,11 +5,19 @@ import { verifyStateToken } from "@/lib/slack/state";
 import { openIdConnectToken, openIdConnectUserInfo } from "@/lib/slack/client";
 import { linkSlackUser } from "@/lib/slack/service";
 import { logger } from "@/lib/logger";
+import { getWorkspaceById } from "@/lib/workspaces/service";
+import { workspacePath } from "@/lib/workspaces/paths";
 
-function backToApp(workspaceId: string | undefined, status: string) {
-  const url = workspaceId
-    ? new URL(`/app/${workspaceId}/settings`, getAppUrl())
-    : new URL("/app", getAppUrl());
+async function backToApp(workspaceId: string | undefined, status: string) {
+  const workspace = workspaceId
+    ? await getWorkspaceById(workspaceId)
+    : null;
+  const path = workspace
+    ? `${workspacePath(workspace)}/settings`
+    : workspaceId
+      ? `/app/${workspaceId}/settings`
+      : "/app";
+  const url = new URL(path, getAppUrl());
   url.searchParams.set("slackLink", status);
   if (workspaceId) url.hash = "slack";
   return NextResponse.redirect(url);
