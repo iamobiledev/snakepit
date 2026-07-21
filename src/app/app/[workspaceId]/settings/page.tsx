@@ -20,6 +20,8 @@ import { NotificationsSection } from "./notifications-section";
 import { SlackSection } from "./slack-section";
 import {
   findWorkspaceByRouteKey,
+  type RouteSearchParams,
+  withSearchParams,
   workspacePath,
 } from "@/lib/workspaces/paths";
 
@@ -27,16 +29,26 @@ export const metadata = { title: "Settings" };
 
 export default async function WorkspaceSettingsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ workspaceId: string }>;
+  searchParams: Promise<RouteSearchParams>;
 }) {
-  const { workspaceId: workspaceRouteKey } = await params;
+  const [{ workspaceId: workspaceRouteKey }, query] = await Promise.all([
+    params,
+    searchParams,
+  ]);
   const session = await requireVerifiedSession();
   const workspaces = await listUserWorkspaces(session.user.id);
   const workspace = findWorkspaceByRouteKey(workspaces, workspaceRouteKey);
   if (!workspace) notFound();
   if (workspaceRouteKey !== workspace.slug) {
-    permanentRedirect(`${workspacePath(workspace)}/settings`);
+    const destination = withSearchParams(
+      `${workspacePath(workspace)}/settings`,
+      query,
+    );
+    const slackHash = query.slack || query.slackLink ? "#slack" : "";
+    permanentRedirect(`${destination}${slackHash}`);
   }
 
   const workspaceId = workspace.id;

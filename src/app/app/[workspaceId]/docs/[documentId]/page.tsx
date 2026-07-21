@@ -70,7 +70,6 @@ export default async function DocumentPage({
       getSlackStatus(doc.workspaceId),
       refreshSubpageTitles(doc.contentJson),
     ]);
-  after(() => recordDocumentView(session.user.id, doc.id));
 
   // The viewer may not be a workspace member (page shared directly with
   // them) — fall back to loading the workspace and treating them as a guest.
@@ -112,6 +111,7 @@ export default async function DocumentPage({
   if (workspaceRouteKey !== workspace.slug) {
     permanentRedirect(workspaceDocumentPath(workspace, doc.id));
   }
+  after(() => recordDocumentView(session.user.id, doc.id));
 
   const editable = accessCanEdit(result.access);
   const trashed = doc.archivedAt !== null;

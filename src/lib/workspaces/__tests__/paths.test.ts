@@ -5,6 +5,8 @@ import {
   workspaceDocumentPathForId,
   workspacePath,
   workspacePathForId,
+  workspaceRoutePaths,
+  withSearchParams,
 } from "@/lib/workspaces/paths";
 
 const workspaces = [
@@ -42,5 +44,28 @@ describe("workspace URL paths", () => {
     expect(
       workspaceDocumentPathForId(workspaces, "shared-id", "doc-id"),
     ).toBe("/app/shared-id/docs/doc-id");
+  });
+
+  it("returns both canonical and legacy paths for cache invalidation", () => {
+    expect(workspaceRoutePaths(workspaces[0])).toEqual([
+      "/app/opaque-id",
+      "/app/rowsone",
+    ]);
+    expect(workspaceRoutePaths(workspaces[0], "/settings")).toEqual([
+      "/app/opaque-id/settings",
+      "/app/rowsone/settings",
+    ]);
+  });
+
+  it("preserves scalar and repeated query parameters across redirects", () => {
+    expect(
+      withSearchParams("/app/rowsone/settings", {
+        slack: "connected",
+        channel: ["general", "support"],
+        omitted: undefined,
+      }),
+    ).toBe(
+      "/app/rowsone/settings?slack=connected&channel=general&channel=support",
+    );
   });
 });

@@ -53,6 +53,7 @@ import { normalizeDocumentBlocks } from "./blocks";
 import { slugify } from "@/lib/utils";
 import { logger } from "@/lib/logger";
 import { measureServerOperation } from "@/lib/performance";
+import { revalidateWorkspaceRoute } from "@/lib/workspaces/revalidation";
 
 const PUBLIC_DOCUMENTS_TAG = "public-documents";
 
@@ -709,7 +710,7 @@ export async function duplicateDocument(opts: {
     action: "created",
     metadata: { docType: copy.docType, duplicatedFrom: source.id },
   });
-  revalidatePath(`/app/${source.workspaceId}`, "layout");
+  await revalidateWorkspaceRoute(source.workspaceId, "", "layout");
   return copy;
 }
 
@@ -860,7 +861,7 @@ export async function saveDocumentContent(opts: {
     // A renamed page can be embedded as a sub-page in any published page.
     revalidateTag(PUBLIC_DOCUMENTS_TAG, { expire: 0 });
     // Refresh the sidebar tree (and any sub-page links) that show this title.
-    revalidatePath(`/app/${existing.workspaceId}`, "layout");
+    await revalidateWorkspaceRoute(existing.workspaceId, "", "layout");
     await recordDocumentActivity({
       documentId: existing.id,
       userId: opts.userId,

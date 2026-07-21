@@ -3,6 +3,11 @@ export type WorkspaceRouteRef = {
   slug: string;
 };
 
+export type RouteSearchParams = Record<
+  string,
+  string | string[] | undefined
+>;
+
 export function findWorkspaceByRouteKey<T extends WorkspaceRouteRef>(
   workspaces: readonly T[],
   routeKey: string,
@@ -22,6 +27,34 @@ export function workspaceDocumentPath(
   documentId: string,
 ): string {
   return `${workspacePath(workspace)}/docs/${documentId}`;
+}
+
+export function workspaceRoutePaths(
+  workspace: WorkspaceRouteRef,
+  suffix = "",
+): string[] {
+  return [
+    ...new Set([
+      `/app/${workspace.id}${suffix}`,
+      `${workspacePath(workspace)}${suffix}`,
+    ]),
+  ];
+}
+
+export function withSearchParams(
+  path: string,
+  searchParams: RouteSearchParams,
+): string {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(searchParams)) {
+    if (Array.isArray(value)) {
+      for (const item of value) query.append(key, item);
+    } else if (value !== undefined) {
+      query.set(key, value);
+    }
+  }
+  const serialized = query.toString();
+  return serialized ? `${path}?${serialized}` : path;
 }
 
 export function workspacePathForId(
